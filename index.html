@@ -21,7 +21,30 @@
   // PIN simple para entrar al panel de administrador (cámbialo cuando quieras)
   const ADMIN_PIN = "2026";
 
-  const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  // Nota: desactivamos persistSession/autoRefreshToken/detectSessionInUrl porque
+  // esta app no usa el sistema de Auth de Supabase (usamos nuestra propia tabla
+  // "clientes"). Esto evita que la librería intente usar localStorage internamente,
+  // lo cual falla en navegadores/iframes con restricciones de sandbox.
+  let supabase;
+  try {
+    if (!window.supabase || !window.supabase.createClient) {
+      throw new Error('La librería de Supabase no cargó (revisa tu conexión a internet o bloqueadores de script).');
+    }
+    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false
+      }
+    });
+  } catch (e) {
+    console.error('Error creando cliente Supabase:', e);
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('app').innerHTML = `<div style="background:#fee2e2;border:1px solid #fca5a5;color:#b91c1c;border-radius:12px;padding:16px;margin-top:24px;font-size:14px;">
+        <b>Error al inicializar la conexión:</b><br>${e.message}
+      </div>`;
+    });
+  }
 </script>
 
 <div id="app" class="max-w-md mx-auto p-4"></div>
