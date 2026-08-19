@@ -3,6 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- Evita que el navegador guarde en caché una versión vieja del HTML,
+     así cuando subas cambios a GitHub, un refresh (F5) siempre trae
+     la última versión publicada. -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>AguaTorre 💧</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -261,7 +267,7 @@ async function renderDashboardCliente(cliente) {
         <h1 class="text-2xl font-bold text-blue-700">Hola, ${miNombre} 👋</h1>
         <p class="text-slate-500 text-sm">Torre ${cliente.torre} · Depto ${cliente.depto} <span class="text-slate-400">(historial compartido)</span></p>
       </div>
-      <button id="btn-salir" class="text-xs text-slate-400 underline">Salir</button>
+      <button id="btn-salir" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-500 px-3 py-1.5 rounded-lg">Cerrar sesión 🔒</button>
     </div>
 
     <div class="bg-white rounded-2xl shadow p-5 mb-4 fade-in">
@@ -301,6 +307,7 @@ async function renderDashboardCliente(cliente) {
   `;
 
   document.getElementById('btn-salir').addEventListener('click', () => {
+    if (!confirm('¿Cerrar sesión? La próxima vez tendrás que ingresar Torre, Depto y Clave de nuevo.')) return;
     safeStorage.removeItem(LS_KEY);
     safeStorage.removeItem(NOMBRE_KEY);
     renderLogin();
