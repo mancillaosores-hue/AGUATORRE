@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AguaTorre 💧</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  body { font-family: 'Segoe UI', system-ui, sans-serif; }
+  .fade-in { animation: fadeIn .35s ease-in-out; }
+  @keyframes fadeIn { from {opacity:0; transform: translateY(6px);} to {opacity:1; transform: translateY(0);} }
+</style>
+</head>
+<body class="bg-gradient-to-b from-sky-50 to-blue-100 min-h-screen">
+
+<!-- ============ CONFIGURACIÓN SUPABASE ============ -->
+<script>
+  const SUPABASE_URL = "https://xpitfiunwxvuxqejrdgc.supabase.co";
+  const SUPABASE_ANON_KEY = "sb_publishable_ySWTY_Mnf82zbAxegBR1hA_62CX7t9M";
+  // PIN simple para entrar al panel de administrador (cámbialo cuando quieras)
+  const ADMIN_PIN = "2026";
+
+  const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+</script>
+
+<div id="app" class="max-w-md mx-auto p-4"></div>
+
+<script>
+const app = document.getElementById('app');
+const LS_KEY = 'aguatorre_cliente_id';
+
+// ---------------------------------------------------------
+// Reglas de puntos / niveles (ajusta a gusto)
+// ---------------------------------------------------------
+const BIDONES_PARA_PREMIO = 10; // cada 10 bidones = 1 gratis
+function nivelDe(bidones) {
+  if (bidones >= 100) return { nombre: 'Platino', emoji: '💎', color: 'bg-indigo-500' };
+  if (bidones >= 50)  return { nombre: 'Oro',      emoji: '🥇', color: 'bg-yellow-500' };
+  if (bidones >= 20)  return { nombre: 'Plata',    emoji: '🥈', color: 'bg-slate-400' };
+  return                     { nombre: 'Bronce',  emoji: '🥉', color: 'bg-orange-400' };
+}
+
+// ---------------------------------------------------------
+// Router simple
+// ---------------------------------------------------------
+async function init() {
+  const clienteId = localStorage.getItem(LS_KEY);
+  if (clienteId) {
+    const { data, error } = await supabase.from('clientes').select('*').eq('id', clienteId).single();
+    if (data && !error) return renderDashboardCliente(data);
+    localStorage.removeItem(LS_KEY);
+  }
+  renderLogin();
+}
+
+// ---------------------------------------------------------
+// PANTALLA: Login / Registro
+// ---------------------------------------------------------
+function renderLogin() {
+  app.innerHTML = `
+    <div class="fade-in text-center pt-10">
+      <div class="text-6xl mb-2">💧</div>
+      <h1 class="text-3xl font-extrabold text-blue-700">AguaTorre</h1>
+      <p class="text-slate-500 mt-1 mb-8">Pide tu agua sin bajar al primer piso</p>
+    </div>
+    <div class="bg-white rounded-2xl shadow-lg p-6 fade-in">
+      <h2 class="font-semibold text-lg mb-4 text-slate-700">Ingresa tus datos</h2>
+      <div class="space-y-3">
+        <input id="in-nombre" type="text" placeholder="Tu nombre" class="w-full border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-400">
+        <div class="flex gap-3">
+          <input id="in-torre" type="text" placeholder="N° Torre" class="w-1/2 border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-400">
+          <input id="in-depto" type="text" placeholder="N° Depto" class="w-1/2 border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-400">
+        </div>
+        <button id="btn-entrar" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl py-3 transition">Ingresar 🚪</button>
+        <p id="login-error" class="text-red-500 text-sm hidden"></p>
+      </div>
+    </div>
+    <div class="text-center mt-6">
+      <button id="btn-admin" class="text-xs text-slate-400 underline">Soy administrador</button>
+    </div>
+  `;
+
+  document.getElementById('btn-entrar').addEventListener('click', handleLogin);
+  document.getElementById('btn-admin').addEventListener('click', handleAdminAccess);
+}
+
+async function handleLogin() {
+  const nombre = document.getElementById('in-nombre').value.trim();
+  const torre = document.getElementById('in-torre').value.trim();
+  const depto = document.getElementById('in-depto').value.trim();
+  const errEl = document.getElementById('login-error');
+  errEl.classList.add('hidden');
+
+  if (!nombre || !torre || !depto) {
+    errEl.textContent = 'Por favor completa nombre, torre y depto.';
+    errEl.classList.remove('hidden');
+    return;
+  }
+
+  // Buscar si ya existe ese cliente (mismo nombre + torre + depto)
+  const { data: existentes, error: errBusca } = await supabase
+    .from('clientes')
+    .select('*')
+    .ilike('nombre', nombre)
+    .eq('torre', torre)
+    .eq('depto', depto)
+    .limit(1);
+
+  if (errBusca) {
+    errEl.textContent = 'Error de conexión. Revisa tu internet e intenta de nuevo.';
+    errEl.classList.remove('hidden');
+    return;
+  }
+
+  let cliente;
+  if (existentes && existentes.length > 0) {
+    cliente = existentes[0];
+  } else {
+    const { data: nuevo, error: errCrea } = await supabase
+      .from('clientes')
+      .insert({ nombre, torre, depto })
+      .select()
+      .single();
+    if (errCrea) {
+      errEl.textContent = 'No se pudo crear tu cuenta. Intenta de nuevo.';
+      errEl.classList.remove('hidden');
+      return;
+    }
+    cliente = nuevo;
+  }
+
+  localStorage.setItem(LS_KEY, cliente.id);
+  renderDashboardCliente(cliente);
+}
+
+function handleAdminAccess() {
+  const pin = prompt('Ingresa el PIN de administrador:');
+  if (pin === ADMIN_PIN) {
+    renderAdmin();
+  } else if (pin !== null) {
+    alert('PIN incorrecto.');
+  }
+}
+
+// ---------------------------------------------------------
+// PANTALLA: Dashboard del cliente
+// ---------------------------------------------------------
+async function renderDashboardCliente(cliente) {
+  const nivel = nivelDe(cliente.bidones_totales);
+  const progreso = cliente.bidones_totales % BIDONES_PARA_PREMIO;
+  const faltan = BIDONES_PARA_PREMIO - progreso;
+  const pct = Math.round((progreso / BIDONES_PARA_PREMIO) * 100);
+
+  const { data: pedidos } = await supabase
+    .from('pedidos')
+    .select('*')
+    .eq('cliente_id', cliente.id)
+    .order('created_at', { ascending: false })
+    .limit(10);
+
+  const historialHtml = (pedidos && pedidos.length > 0)
+    ? pedidos.map(p => `
+        <div class="flex justify-between items-center border-b py-2 text-sm">
+          <div>
+            <div class="font-medium text-slate-700">${p.cantidad} bidón(es) ${p.tipo_bidon}</div>
+            <div class="text-slate-400 text-xs">${new Date(p.created_at).toLocaleDateString('es-CL', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })} · ${p.metodo_pago}</div>
+          </div>
+          <span class="px-2 py-1 rounded-full text-xs font-semibold ${estadoColor(p.estado)}">${estadoLabel(p.estado)}</span>
+        </div>`).join('')
+    : `<p class="text-slate-400 text-sm text-center py-4">Aún no tienes pedidos 💧</p>`;
+
+  app.innerHTML = `
+    <div class="fade-in flex justify-between items-start pt-4 mb-4">
+      <div>
+        <h1 class="text-2xl font-bold text-blue-700">Hola, ${cliente.nombre} 👋</h1>
+        <p class="text-slate-500 text-sm">Torre ${cliente.torre} · Depto ${cliente.depto}</p>
+      </div>
+      <button id="btn-salir" class="text-xs text-slate-400 underline">Salir</button>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow p-5 mb-4 fade-in">
+      <div class="flex justify-between items-center mb-2">
+        <span class="font-semibold text-slate-700">${nivel.emoji} Nivel ${nivel.nombre}</span>
+        <span class="text-sm text-slate-500">${cliente.bidones_totales} bidones en total</span>
+      </div>
+      <div class="w-full bg-slate-200 rounded-full h-3 overflow-hidden">
+        <div class="${nivel.color} h-3 rounded-full transition-all" style="width:${pct}%"></div>
+      </div>
+      <p class="text-xs text-slate-500 mt-2">🎁 Te faltan <b>${faltan} bidón(es)</b> para tu próximo bidón gratis</p>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow p-5 mb-4 fade-in">
+      <h2 class="font-semibold text-slate-700 mb-3">Hacer un pedido 🛒</h2>
+      <div class="space-y-3">
+        <div class="flex gap-3">
+          <input id="ped-cantidad" type="number" min="1" value="1" placeholder="Cantidad" class="w-1/2 border rounded-xl px-3 py-2">
+          <select id="ped-tipo" class="w-1/2 border rounded-xl px-3 py-2">
+            <option value="20L">Bidón 20L</option>
+            <option value="12L">Bidón 12L</option>
+          </select>
+        </div>
+        <select id="ped-pago" class="w-full border rounded-xl px-3 py-2">
+          <option value="efectivo">Pago en efectivo</option>
+          <option value="transferencia">Pago por transferencia</option>
+        </select>
+        <button id="btn-pedir" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl py-3 transition">Enviar pedido 🚚</button>
+        <p id="pedido-msg" class="text-sm text-center hidden"></p>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow p-5 mb-8 fade-in">
+      <h2 class="font-semibold text-slate-700 mb-2">Mis últimos pedidos</h2>
+      ${historialHtml}
+    </div>
+  `;
+
+  document.getElementById('btn-salir').addEventListener('click', () => {
+    localStorage.removeItem(LS_KEY);
+    renderLogin();
+  });
+
+  document.getElementById('btn-pedir').addEventListener('click', () => handleNuevoPedido(cliente));
+}
+
+function estadoColor(estado) {
+  if (estado === 'pagado') return 'bg-green-100 text-green-700';
+  if (estado === 'entregado') return 'bg-blue-100 text-blue-700';
+  return 'bg-amber-100 text-amber-700';
+}
+function estadoLabel(estado) {
+  if (estado === 'pagado') return 'Pagado ✅';
+  if (estado === 'entregado') return 'Entregado 🚚';
+  return 'Pendiente ⏳';
+}
+
+async function handleNuevoPedido(cliente) {
+  const cantidad = parseInt(document.getElementById('ped-cantidad').value, 10) || 1;
+  const tipo = document.getElementById('ped-tipo').value;
+  const pago = document.getElementById('ped-pago').value;
+  const msgEl = document.getElementById('pedido-msg');
+
+  const { error: errPedido } = await supabase.from('pedidos').insert({
+    cliente_id: cliente.id,
+    cantidad,
+    tipo_bidon: tipo,
+    metodo_pago: pago,
+    estado: 'pendiente'
+  });
+
+  if (errPedido) {
+    msgEl.textContent = 'Hubo un error al enviar tu pedido. Intenta de nuevo.';
+    msgEl.className = 'text-sm text-center text-red-500';
+    msgEl.classList.remove('hidden');
+    return;
+  }
+
+  // Actualizar puntos y total de bidones del cliente
+  const nuevoTotal = cliente.bidones_totales + cantidad;
+  await supabase.from('clientes').update({
+    bidones_totales: nuevoTotal,
+    puntos: nuevoTotal
+  }).eq('id', cliente.id);
+
+  const { data: clienteActualizado } = await supabase.from('clientes').select('*').eq('id', cliente.id).single();
+  renderDashboardCliente(clienteActualizado || { ...cliente, bidones_totales: nuevoTotal, puntos: nuevoTotal });
+}
+
+// ---------------------------------------------------------
+// PANTALLA: Admin
+// ---------------------------------------------------------
+async function renderAdmin() {
+  const { data: pedidos } = await supabase
+    .from('pedidos')
+    .select('*, clientes(nombre, torre, depto)')
+    .order('created_at', { ascending: false })
+    .limit(100);
+
+  const { data: clientes } = await supabase
+    .from('clientes')
+    .select('*')
+    .order('bidones_totales', { ascending: false });
+
+  const pendientes = (pedidos || []).filter(p => p.estado !== 'pagado');
+
+  const pedidosHtml = pendientes.length > 0 ? pendientes.map(p => `
+    <div class="border rounded-xl p-3 mb-2 flex justify-between items-center">
+      <div>
+        <div class="font-medium text-slate-700">${p.clientes?.nombre || '—'} · Torre ${p.clientes?.torre || '?'} Depto ${p.clientes?.depto || '?'}</div>
+        <div class="text-xs text-slate-400">${p.cantidad} bidón(es) ${p.tipo_bidon} · ${p.metodo_pago} · ${new Date(p.created_at).toLocaleString('es-CL')}</div>
+      </div>
+      <div class="flex gap-2">
+        ${p.estado === 'pendiente' ? `<button data-id="${p.id}" data-estado="entregado" class="btn-estado text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-lg">Entregado</button>` : ''}
+        <button data-id="${p.id}" data-estado="pagado" class="btn-estado text-xs bg-green-100 text-green-700 px-2 py-1 rounded-lg">Pagado</button>
+      </div>
+    </div>
+  `).join('') : `<p class="text-slate-400 text-sm text-center py-4">No hay pedidos pendientes 🎉</p>`;
+
+  const clientesHtml = (clientes || []).map(c => `
+    <div class="flex justify-between items-center border-b py-2 text-sm">
+      <span class="text-slate-700">${c.nombre} · Torre ${c.torre} Depto ${c.depto}</span>
+      <span class="font-semibold text-blue-600">${c.bidones_totales} 💧</span>
+    </div>
+  `).join('');
+
+  app.innerHTML = `
+    <div class="fade-in flex justify-between items-center pt-4 mb-4">
+      <h1 class="text-2xl font-bold text-blue-700">Panel Admin 🛠️</h1>
+      <button id="btn-volver" class="text-xs text-slate-400 underline">Volver</button>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow p-5 mb-4 fade-in">
+      <h2 class="font-semibold text-slate-700 mb-3">Pedidos pendientes / en curso</h2>
+      ${pedidosHtml}
+    </div>
+
+    <div class="bg-white rounded-2xl shadow p-5 mb-8 fade-in">
+      <h2 class="font-semibold text-slate-700 mb-2">Clientes del condominio (${(clientes||[]).length})</h2>
+      ${clientesHtml}
+    </div>
+  `;
+
+  document.getElementById('btn-volver').addEventListener('click', init);
+  document.querySelectorAll('.btn-estado').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const id = e.target.getAttribute('data-id');
+      const estado = e.target.getAttribute('data-estado');
+      await supabase.from('pedidos').update({ estado }).eq('id', id);
+      renderAdmin();
+    });
+  });
+}
+
+// ---------------------------------------------------------
+init();
+</script>
+</body>
+</html>
