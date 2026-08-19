@@ -45,13 +45,20 @@ function nivelDe(bidones) {
 // Router simple
 // ---------------------------------------------------------
 async function init() {
-  const clienteId = localStorage.getItem(LS_KEY);
-  if (clienteId) {
-    const { data, error } = await supabase.from('clientes').select('*').eq('id', clienteId).single();
-    if (data && !error) return renderDashboardCliente(data);
-    localStorage.removeItem(LS_KEY);
+  try {
+    const clienteId = localStorage.getItem(LS_KEY);
+    if (clienteId) {
+      const { data, error } = await supabase.from('clientes').select('*').eq('id', clienteId).single();
+      if (data && !error) return renderDashboardCliente(data);
+      localStorage.removeItem(LS_KEY);
+    }
+    renderLogin();
+  } catch (err) {
+    console.error('Error en init:', err);
+    app.innerHTML = `<div class="bg-red-50 border border-red-300 text-red-700 rounded-xl p-4 mt-6 text-sm">
+      <b>Error al conectar con la base de datos:</b><br>${err.message || JSON.stringify(err)}
+    </div>`;
   }
-  renderLogin();
 }
 
 // ---------------------------------------------------------
@@ -90,6 +97,7 @@ async function handleLogin() {
   const torre = document.getElementById('in-torre').value.trim();
   const depto = document.getElementById('in-depto').value.trim();
   const errEl = document.getElementById('login-error');
+  const btn = document.getElementById('btn-entrar');
   errEl.classList.add('hidden');
 
   if (!nombre || !torre || !depto) {
@@ -98,40 +106,44 @@ async function handleLogin() {
     return;
   }
 
-  // Buscar si ya existe ese cliente (mismo nombre + torre + depto)
-  const { data: existentes, error: errBusca } = await supabase
-    .from('clientes')
-    .select('*')
-    .ilike('nombre', nombre)
-    .eq('torre', torre)
-    .eq('depto', depto)
-    .limit(1);
+  const textoOriginal = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Cargando...';
 
-  if (errBusca) {
-    errEl.textContent = 'Error de conexión. Revisa tu internet e intenta de nuevo.';
-    errEl.classList.remove('hidden');
-    return;
-  }
-
-  let cliente;
-  if (existentes && existentes.length > 0) {
-    cliente = existentes[0];
-  } else {
-    const { data: nuevo, error: errCrea } = await supabase
+  try {
+    // Buscar si ya existe ese cliente (mismo nombre + torre + depto)
+    const { data: existentes, error: errBusca } = await supabase
       .from('clientes')
-      .insert({ nombre, torre, depto })
-      .select()
-      .single();
-    if (errCrea) {
-      errEl.textContent = 'No se pudo crear tu cuenta. Intenta de nuevo.';
-      errEl.classList.remove('hidden');
-      return;
-    }
-    cliente = nuevo;
-  }
+      .select('*')
+      .ilike('nombre', nombre)
+      .eq('torre', torre)
+      .eq('depto', depto)
+      .limit(1);
 
-  localStorage.setItem(LS_KEY, cliente.id);
-  renderDashboardCliente(cliente);
+    if (errBusca) throw errBusca;
+
+    let cliente;
+    if (existentes && existentes.length > 0) {
+      cliente = existentes[0];
+    } else {
+      const { data: nuevo, error: errCrea } = await supabase
+        .from('clientes')
+        .insert({ nombre, torre, depto })
+        .select()
+        .single();
+      if (errCrea) throw errCrea;
+      cliente = nuevo;
+    }
+
+    localStorage.setItem(LS_KEY, cliente.id);
+    renderDashboardCliente(cliente);
+  } catch (err) {
+    console.error('Error en login:', err);
+    errEl.textContent = 'Error: ' + (err.message || JSON.stringify(err));
+    errEl.classList.remove('hidden');
+    btn.disabled = false;
+    btn.textContent = textoOriginal;
+  }
 }
 
 function handleAdminAccess() {
@@ -240,30 +252,33 @@ async function handleNuevoPedido(cliente) {
   const pago = document.getElementById('ped-pago').value;
   const msgEl = document.getElementById('pedido-msg');
 
-  const { error: errPedido } = await supabase.from('pedidos').insert({
-    cliente_id: cliente.id,
-    cantidad,
-    tipo_bidon: tipo,
-    metodo_pago: pago,
-    estado: 'pendiente'
-  });
+  try {
+    const { error: errPedido } = await supabase.from('pedidos').insert({
+      cliente_id: cliente.id,
+      cantidad,
+      tipo_bidon: tipo,
+      metodo_pago: pago,
+      estado: 'pendiente'
+    });
 
-  if (errPedido) {
-    msgEl.textContent = 'Hubo un error al enviar tu pedido. Intenta de nuevo.';
+    if (errPedido) throw errPedido;
+
+    // Actualizar puntos y total de bidones del cliente
+    const nuevoTotal = cliente.bidones_totales + cantidad;
+    const { error: errUpdate } = await supabase.from('clientes').update({
+      bidones_totales: nuevoTotal,
+      puntos: nuevoTotal
+    }).eq('id', cliente.id);
+    if (errUpdate) throw errUpdate;
+
+    const { data: clienteActualizado } = await supabase.from('clientes').select('*').eq('id', cliente.id).single();
+    renderDashboardCliente(clienteActualizado || { ...cliente, bidones_totales: nuevoTotal, puntos: nuevoTotal });
+  } catch (err) {
+    console.error('Error al crear pedido:', err);
+    msgEl.textContent = 'Error: ' + (err.message || JSON.stringify(err));
     msgEl.className = 'text-sm text-center text-red-500';
     msgEl.classList.remove('hidden');
-    return;
   }
-
-  // Actualizar puntos y total de bidones del cliente
-  const nuevoTotal = cliente.bidones_totales + cantidad;
-  await supabase.from('clientes').update({
-    bidones_totales: nuevoTotal,
-    puntos: nuevoTotal
-  }).eq('id', cliente.id);
-
-  const { data: clienteActualizado } = await supabase.from('clientes').select('*').eq('id', cliente.id).single();
-  renderDashboardCliente(clienteActualizado || { ...cliente, bidones_totales: nuevoTotal, puntos: nuevoTotal });
 }
 
 // ---------------------------------------------------------
