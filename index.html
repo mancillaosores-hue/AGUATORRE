@@ -31,6 +31,28 @@ const app = document.getElementById('app');
 const LS_KEY = 'aguatorre_cliente_id';
 
 // ---------------------------------------------------------
+// Almacenamiento seguro: usa localStorage si está disponible,
+// si no (p.ej. navegador en modo sandbox/iframe restringido),
+// usa una variable en memoria como respaldo para que la app
+// siga funcionando durante la sesión.
+// ---------------------------------------------------------
+const memoryStore = {};
+const safeStorage = {
+  getItem(key) {
+    try { return window.localStorage.getItem(key); }
+    catch (e) { return memoryStore[key] || null; }
+  },
+  setItem(key, value) {
+    try { window.localStorage.setItem(key, value); }
+    catch (e) { memoryStore[key] = value; }
+  },
+  removeItem(key) {
+    try { window.localStorage.removeItem(key); }
+    catch (e) { delete memoryStore[key]; }
+  }
+};
+
+// ---------------------------------------------------------
 // Reglas de puntos / niveles (ajusta a gusto)
 // ---------------------------------------------------------
 const BIDONES_PARA_PREMIO = 10; // cada 10 bidones = 1 gratis
@@ -46,11 +68,11 @@ function nivelDe(bidones) {
 // ---------------------------------------------------------
 async function init() {
   try {
-    const clienteId = localStorage.getItem(LS_KEY);
+    const clienteId = safeStorage.getItem(LS_KEY);
     if (clienteId) {
       const { data, error } = await supabase.from('clientes').select('*').eq('id', clienteId).single();
       if (data && !error) return renderDashboardCliente(data);
-      localStorage.removeItem(LS_KEY);
+      safeStorage.removeItem(LS_KEY);
     }
     renderLogin();
   } catch (err) {
@@ -135,7 +157,7 @@ async function handleLogin() {
       cliente = nuevo;
     }
 
-    localStorage.setItem(LS_KEY, cliente.id);
+    safeStorage.setItem(LS_KEY, cliente.id);
     renderDashboardCliente(cliente);
   } catch (err) {
     console.error('Error en login:', err);
@@ -228,7 +250,7 @@ async function renderDashboardCliente(cliente) {
   `;
 
   document.getElementById('btn-salir').addEventListener('click', () => {
-    localStorage.removeItem(LS_KEY);
+    safeStorage.removeItem(LS_KEY);
     renderLogin();
   });
 
