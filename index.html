@@ -25,12 +25,12 @@
   // esta app no usa el sistema de Auth de Supabase (usamos nuestra propia tabla
   // "clientes"). Esto evita que la librería intente usar localStorage internamente,
   // lo cual falla en navegadores/iframes con restricciones de sandbox.
-  let supabase;
+  let supabaseClient;
   try {
     if (!window.supabase || !window.supabase.createClient) {
       throw new Error('La librería de Supabase no cargó (revisa tu conexión a internet o bloqueadores de script).');
     }
-    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: {
         persistSession: false,
         autoRefreshToken: false,
@@ -93,7 +93,7 @@ async function init() {
   try {
     const clienteId = safeStorage.getItem(LS_KEY);
     if (clienteId) {
-      const { data, error } = await supabase.from('clientes').select('*').eq('id', clienteId).single();
+      const { data, error } = await supabaseClient.from('clientes').select('*').eq('id', clienteId).single();
       if (data && !error) return renderDashboardCliente(data);
       safeStorage.removeItem(LS_KEY);
     }
@@ -157,7 +157,7 @@ async function handleLogin() {
 
   try {
     // Buscar si ya existe ese cliente (mismo nombre + torre + depto)
-    const { data: existentes, error: errBusca } = await supabase
+    const { data: existentes, error: errBusca } = await supabaseClient
       .from('clientes')
       .select('*')
       .ilike('nombre', nombre)
@@ -171,7 +171,7 @@ async function handleLogin() {
     if (existentes && existentes.length > 0) {
       cliente = existentes[0];
     } else {
-      const { data: nuevo, error: errCrea } = await supabase
+      const { data: nuevo, error: errCrea } = await supabaseClient
         .from('clientes')
         .insert({ nombre, torre, depto })
         .select()
@@ -209,7 +209,7 @@ async function renderDashboardCliente(cliente) {
   const faltan = BIDONES_PARA_PREMIO - progreso;
   const pct = Math.round((progreso / BIDONES_PARA_PREMIO) * 100);
 
-  const { data: pedidos } = await supabase
+  const { data: pedidos } = await supabaseClient
     .from('pedidos')
     .select('*')
     .eq('cliente_id', cliente.id)
@@ -298,7 +298,7 @@ async function handleNuevoPedido(cliente) {
   const msgEl = document.getElementById('pedido-msg');
 
   try {
-    const { error: errPedido } = await supabase.from('pedidos').insert({
+    const { error: errPedido } = await supabaseClient.from('pedidos').insert({
       cliente_id: cliente.id,
       cantidad,
       tipo_bidon: tipo,
@@ -310,13 +310,13 @@ async function handleNuevoPedido(cliente) {
 
     // Actualizar puntos y total de bidones del cliente
     const nuevoTotal = cliente.bidones_totales + cantidad;
-    const { error: errUpdate } = await supabase.from('clientes').update({
+    const { error: errUpdate } = await supabaseClient.from('clientes').update({
       bidones_totales: nuevoTotal,
       puntos: nuevoTotal
     }).eq('id', cliente.id);
     if (errUpdate) throw errUpdate;
 
-    const { data: clienteActualizado } = await supabase.from('clientes').select('*').eq('id', cliente.id).single();
+    const { data: clienteActualizado } = await supabaseClient.from('clientes').select('*').eq('id', cliente.id).single();
     renderDashboardCliente(clienteActualizado || { ...cliente, bidones_totales: nuevoTotal, puntos: nuevoTotal });
   } catch (err) {
     console.error('Error al crear pedido:', err);
@@ -330,13 +330,13 @@ async function handleNuevoPedido(cliente) {
 // PANTALLA: Admin
 // ---------------------------------------------------------
 async function renderAdmin() {
-  const { data: pedidos } = await supabase
+  const { data: pedidos } = await supabaseClient
     .from('pedidos')
     .select('*, clientes(nombre, torre, depto)')
     .order('created_at', { ascending: false })
     .limit(100);
 
-  const { data: clientes } = await supabase
+  const { data: clientes } = await supabaseClient
     .from('clientes')
     .select('*')
     .order('bidones_totales', { ascending: false });
@@ -385,7 +385,7 @@ async function renderAdmin() {
     btn.addEventListener('click', async (e) => {
       const id = e.target.getAttribute('data-id');
       const estado = e.target.getAttribute('data-estado');
-      await supabase.from('pedidos').update({ estado }).eq('id', id);
+      await supabaseClient.from('pedidos').update({ estado }).eq('id', id);
       renderAdmin();
     });
   });
