@@ -59,6 +59,7 @@
 const app = document.getElementById('app');
 const LS_KEY = 'aguatorre_cliente_id';
 const NOMBRE_KEY = 'aguatorre_mi_nombre';
+const ADMIN_SESSION_KEY = 'aguatorre_admin_session';
 
 // ---------------------------------------------------------
 // Almacenamiento seguro: usa localStorage si está disponible,
@@ -98,6 +99,12 @@ function nivelDe(bidones) {
 // ---------------------------------------------------------
 async function init() {
   try {
+    // Si ya había una sesión de administrador activa, la mantenemos
+    // aunque se refresque la página (hasta que haga "Cerrar sesión").
+    if (safeStorage.getItem(ADMIN_SESSION_KEY) === 'true') {
+      return renderAdmin();
+    }
+
     const clienteId = safeStorage.getItem(LS_KEY);
     if (clienteId) {
       const { data, error } = await supabaseClient.from('clientes').select('*').eq('id', clienteId).single();
@@ -226,6 +233,7 @@ async function handleLogin() {
 function handleAdminAccess() {
   const pin = prompt('Ingresa el PIN de administrador:');
   if (pin === ADMIN_PIN) {
+    safeStorage.setItem(ADMIN_SESSION_KEY, 'true');
     renderAdmin();
   } else if (pin !== null) {
     alert('PIN incorrecto.');
@@ -404,7 +412,7 @@ async function renderAdmin() {
   app.innerHTML = `
     <div class="fade-in flex justify-between items-center pt-4 mb-4">
       <h1 class="text-2xl font-bold text-blue-700">Panel Admin 🛠️</h1>
-      <button id="btn-volver" class="text-xs text-slate-400 underline">Volver</button>
+      <button id="btn-volver" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-500 px-3 py-1.5 rounded-lg">Cerrar sesión 🔒</button>
     </div>
 
     <div class="bg-white rounded-2xl shadow p-5 mb-4 fade-in">
@@ -418,7 +426,11 @@ async function renderAdmin() {
     </div>
   `;
 
-  document.getElementById('btn-volver').addEventListener('click', init);
+  document.getElementById('btn-volver').addEventListener('click', () => {
+    if (!confirm('¿Cerrar sesión de administrador?')) return;
+    safeStorage.removeItem(ADMIN_SESSION_KEY);
+    renderLogin();
+  });
   document.querySelectorAll('.btn-estado').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       const id = e.target.getAttribute('data-id');
