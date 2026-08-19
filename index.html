@@ -52,6 +52,7 @@
 <script>
 const app = document.getElementById('app');
 const LS_KEY = 'aguatorre_cliente_id';
+const NOMBRE_KEY = 'aguatorre_mi_nombre';
 
 // ---------------------------------------------------------
 // Almacenamiento seguro: usa localStorage si está disponible,
@@ -117,13 +118,15 @@ function renderLogin() {
       <p class="text-slate-500 mt-1 mb-8">Pide tu agua sin bajar al primer piso</p>
     </div>
     <div class="bg-white rounded-2xl shadow-lg p-6 fade-in">
-      <h2 class="font-semibold text-lg mb-4 text-slate-700">Ingresa tus datos</h2>
+      <h2 class="font-semibold text-lg mb-1 text-slate-700">Ingresa tus datos</h2>
+      <p class="text-xs text-slate-400 mb-4">Todos los miembros de un mismo depto usan la <b>misma clave</b> para compartir historial y puntos.</p>
       <div class="space-y-3">
-        <input id="in-nombre" type="text" placeholder="Tu nombre" class="w-full border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-400">
+        <input id="in-nombre" type="text" placeholder="Tu nombre (quién pide hoy)" class="w-full border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-400">
         <div class="flex gap-3">
           <input id="in-torre" type="text" placeholder="N° Torre" class="w-1/2 border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-400">
           <input id="in-depto" type="text" placeholder="N° Depto" class="w-1/2 border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-400">
         </div>
+        <input id="in-clave" type="password" placeholder="Clave del depto (la inventas tú la 1ª vez)" class="w-full border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-400">
         <button id="btn-entrar" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl py-3 transition">Ingresar 🚪</button>
         <p id="login-error" class="text-red-500 text-sm hidden"></p>
       </div>
@@ -141,12 +144,13 @@ async function handleLogin() {
   const nombre = document.getElementById('in-nombre').value.trim();
   const torre = document.getElementById('in-torre').value.trim();
   const depto = document.getElementById('in-depto').value.trim();
+  const clave = document.getElementById('in-clave').value.trim();
   const errEl = document.getElementById('login-error');
   const btn = document.getElementById('btn-entrar');
   errEl.classList.add('hidden');
 
-  if (!nombre || !torre || !depto) {
-    errEl.textContent = 'Por favor completa nombre, torre y depto.';
+  if (!nombre || !torre || !depto || !clave) {
+    errEl.textContent = 'Por favor completa nombre, torre, depto y clave.';
     errEl.classList.remove('hidden');
     return;
   }
@@ -156,11 +160,12 @@ async function handleLogin() {
   btn.textContent = 'Cargando...';
 
   try {
-    // Buscar si ya existe ese cliente (mismo nombre + torre + depto)
+    // El depto (Torre + N° Depto) es la unidad que comparte historial y
+    // puntos entre todos los miembros de la familia. Buscamos por
+    // torre + depto (ya NO por nombre), y validamos la clave del depto.
     const { data: existentes, error: errBusca } = await supabaseClient
       .from('clientes')
       .select('*')
-      .ilike('nombre', nombre)
       .eq('torre', torre)
       .eq('depto', depto)
       .limit(1);
@@ -170,10 +175,30 @@ async function handleLogin() {
     let cliente;
     if (existentes && existentes.length > 0) {
       cliente = existentes[0];
+
+      if (!cliente.clave) {
+        // Cuenta creada antes de tener clave (o primera vez que alguien
+        // la protege): se "reclama" con la clave que acaba de ingresar.
+        const { data: actualizado, error: errClaim } = await supabaseClient
+          .from('clientes')
+          .update({ clave })
+          .eq('id', cliente.id)
+          .select()
+          .single();
+        if (errClaim) throw errClaim;
+        cliente = actualizado;
+      } else if (cliente.clave !== clave) {
+        errEl.textContent = `Clave incorrecta para Torre ${torre}, Depto ${depto}. Pregunta a algún familiar por la clave, o contacta al administrador.`;
+        errEl.classList.remove('hidden');
+        btn.disabled = false;
+        btn.textContent = textoOriginal;
+        return;
+      }
     } else {
+      // Primera vez que se registra este depto: se crea junto a su clave.
       const { data: nuevo, error: errCrea } = await supabaseClient
         .from('clientes')
-        .insert({ nombre, torre, depto })
+        .insert({ nombre, torre, depto, clave })
         .select()
         .single();
       if (errCrea) throw errCrea;
@@ -181,6 +206,7 @@ async function handleLogin() {
     }
 
     safeStorage.setItem(LS_KEY, cliente.id);
+    safeStorage.setItem(NOMBRE_KEY, nombre);
     renderDashboardCliente(cliente);
   } catch (err) {
     console.error('Error en login:', err);
@@ -221,17 +247,19 @@ async function renderDashboardCliente(cliente) {
         <div class="flex justify-between items-center border-b py-2 text-sm">
           <div>
             <div class="font-medium text-slate-700">${p.cantidad} bidón(es) ${p.tipo_bidon}</div>
-            <div class="text-slate-400 text-xs">${new Date(p.created_at).toLocaleDateString('es-CL', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })} · ${p.metodo_pago}</div>
+            <div class="text-slate-400 text-xs">${new Date(p.created_at).toLocaleDateString('es-CL', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })} · ${p.metodo_pago}${p.nombre_solicitante ? ' · pidió ' + p.nombre_solicitante : ''}</div>
           </div>
           <span class="px-2 py-1 rounded-full text-xs font-semibold ${estadoColor(p.estado)}">${estadoLabel(p.estado)}</span>
         </div>`).join('')
     : `<p class="text-slate-400 text-sm text-center py-4">Aún no tienes pedidos 💧</p>`;
 
+  const miNombre = safeStorage.getItem(NOMBRE_KEY) || cliente.nombre;
+
   app.innerHTML = `
     <div class="fade-in flex justify-between items-start pt-4 mb-4">
       <div>
-        <h1 class="text-2xl font-bold text-blue-700">Hola, ${cliente.nombre} 👋</h1>
-        <p class="text-slate-500 text-sm">Torre ${cliente.torre} · Depto ${cliente.depto}</p>
+        <h1 class="text-2xl font-bold text-blue-700">Hola, ${miNombre} 👋</h1>
+        <p class="text-slate-500 text-sm">Torre ${cliente.torre} · Depto ${cliente.depto} <span class="text-slate-400">(historial compartido)</span></p>
       </div>
       <button id="btn-salir" class="text-xs text-slate-400 underline">Salir</button>
     </div>
@@ -274,6 +302,7 @@ async function renderDashboardCliente(cliente) {
 
   document.getElementById('btn-salir').addEventListener('click', () => {
     safeStorage.removeItem(LS_KEY);
+    safeStorage.removeItem(NOMBRE_KEY);
     renderLogin();
   });
 
@@ -298,12 +327,14 @@ async function handleNuevoPedido(cliente) {
   const msgEl = document.getElementById('pedido-msg');
 
   try {
+    const miNombre = safeStorage.getItem(NOMBRE_KEY) || cliente.nombre;
     const { error: errPedido } = await supabaseClient.from('pedidos').insert({
       cliente_id: cliente.id,
       cantidad,
       tipo_bidon: tipo,
       metodo_pago: pago,
-      estado: 'pendiente'
+      estado: 'pendiente',
+      nombre_solicitante: miNombre
     });
 
     if (errPedido) throw errPedido;
@@ -346,7 +377,7 @@ async function renderAdmin() {
   const pedidosHtml = pendientes.length > 0 ? pendientes.map(p => `
     <div class="border rounded-xl p-3 mb-2 flex justify-between items-center">
       <div>
-        <div class="font-medium text-slate-700">${p.clientes?.nombre || '—'} · Torre ${p.clientes?.torre || '?'} Depto ${p.clientes?.depto || '?'}</div>
+        <div class="font-medium text-slate-700">Torre ${p.clientes?.torre || '?'} Depto ${p.clientes?.depto || '?'} ${p.nombre_solicitante ? '· pidió ' + p.nombre_solicitante : ''}</div>
         <div class="text-xs text-slate-400">${p.cantidad} bidón(es) ${p.tipo_bidon} · ${p.metodo_pago} · ${new Date(p.created_at).toLocaleString('es-CL')}</div>
       </div>
       <div class="flex gap-2">
