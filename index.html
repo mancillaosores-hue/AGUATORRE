@@ -1151,6 +1151,13 @@ async function renderPuntos(cliente){
   try { const { data } = await supabaseClient.from('recompensas').select('*').eq('activa', true).order('costo_puntos', { ascending:true }); recompensas = data || []; }
   catch(e){ console.warn('Tabla recompensas no disponible aún.'); }
 
+  /* NUEVO: historial de canjes del propio cliente, para que pueda
+     ver el estado (Pendiente/Entregado/Cancelado) de cada recompensa
+     que canjeó, sin depender solo de la notificación puntual. */
+  let misCanjes = [];
+  try { const { data } = await supabaseClient.from('canjes').select('*, recompensas(nombre, tipo, costo_puntos)').eq('cliente_id', cliente.id).order('created_at', { ascending:false }); misCanjes = data || []; }
+  catch(e){ console.warn('Tabla canjes no disponible aún.'); }
+
   const recompensasHtml = recompensas.length>0 ? recompensas.map(r => `
     <div class="card p-4 mb-3 flex items-center justify-between">
       <div>
@@ -1191,6 +1198,26 @@ async function renderPuntos(cliente){
       <h3 class="font-bold text-slate-700 mb-2 px-1">Recompensas</h3>
       ${recompensasHtml}
     </div>
+
+    ${misCanjes.length > 0 ? `
+    <div class="mb-6">
+      <h3 class="font-bold text-slate-700 mb-2 px-1">Mis canjes</h3>
+      ${misCanjes.map(c => {
+        const estadoInfo = {
+          pendiente: { label:'⏳ Pendiente', color:'bg-amber-100 text-amber-700' },
+          entregado: { label:'✅ Entregado', color:'bg-green-100 text-green-700' },
+          cancelado: { label:'❌ Cancelado', color:'bg-red-100 text-red-700' }
+        }[c.estado] || { label:c.estado, color:'bg-slate-100 text-slate-600' };
+        return `
+        <div class="card p-4 mb-3 flex items-center justify-between">
+          <div>
+            <p class="font-semibold text-slate-700 text-sm">${iconoRecompensa(c.recompensas?.tipo)} ${c.recompensas?.nombre||'Recompensa'}</p>
+            <p class="text-xs text-slate-400">${fechaHora(c.created_at)} · ${c.recompensas?.costo_puntos||0} pts</p>
+          </div>
+          <span class="px-2 py-1 rounded-full text-xs font-semibold ${estadoInfo.color}">${estadoInfo.label}</span>
+        </div>`;
+      }).join('')}
+    </div>` : ''}
   `;
 
   document.querySelectorAll('.btn-canjear').forEach(b => b.addEventListener('click', async ()=>{
@@ -1892,7 +1919,7 @@ async function renderAdminGamificacion(){
   const cont = document.getElementById('admin-content');
   let recompensas = [], canjes = [], referidos = [];
   try { const { data } = await supabaseClient.from('recompensas').select('*').order('costo_puntos'); recompensas = data || []; } catch(e){}
-  try { const { data } = await supabaseClient.from('canjes').select('*, clientes(nombre), recompensas(nombre)').order('created_at', { ascending:false }).limit(50); canjes = data || []; } catch(e){}
+  try { const { data } = await supabaseClient.from('canjes').select('*, clientes(nombre, puntos), recompensas(nombre, costo_puntos)').order('created_at', { ascending:false }).limit(50); canjes = data || []; } catch(e){}
   try { const { data } = await supabaseClient.from('referidos').select('*'); referidos = data || []; } catch(e){}
 
   const filasRecompensas = recompensas.map(r => `
@@ -1903,11 +1930,14 @@ async function renderAdminGamificacion(){
       <td class="py-2 px-3"><button data-id="${r.id}" data-activa="${r.activa}" class="btn-toggle-recompensa text-xs px-2 py-1 rounded-full font-semibold ${r.activa?'bg-green-100 text-green-700':'bg-slate-100 text-slate-500'}">${r.activa?'Activa':'Inactiva'}</button></td>
     </tr>`).join('');
 
+  /* FIX: el badge de estado antes siempre salía amarillo ("pendiente"),
+     sin importar el estado real del canje. Ahora usa color dinámico. */
+  const colorEstadoCanje = { pendiente:'bg-amber-100 text-amber-700', entregado:'bg-green-100 text-green-700', cancelado:'bg-red-100 text-red-700' };
   const filasCanjes = canjes.map(c => `
     <tr class="border-b hover:bg-slate-50">
       <td class="py-2 px-3 text-sm">${c.clientes?.nombre||'—'}</td>
       <td class="py-2 px-3 text-sm">${c.recompensas?.nombre||'—'}</td>
-      <td class="py-2 px-3 text-xs"><span class="px-2 py-1 rounded-full bg-amber-100 text-amber-700">${c.estado}</span></td>
+      <td class="py-2 px-3 text-xs"><span class="px-2 py-1 rounded-full font-semibold ${colorEstadoCanje[c.estado]||'bg-slate-100 text-slate-600'}">${c.estado}</span></td>
       <td class="py-2 px-3"><select data-id="${c.id}" class="sel-canje text-xs border rounded-lg px-2 py-1"><option value="pendiente" ${c.estado==='pendiente'?'selected':''}>Pendiente</option><option value="entregado" ${c.estado==='entregado'?'selected':''}>Entregado</option><option value="cancelado" ${c.estado==='cancelado'?'selected':''}>Cancelado</option></select></td>
     </tr>`).join('');
 
@@ -1959,9 +1989,38 @@ async function renderAdminGamificacion(){
     await supabaseClient.from('recompensas').update({ activa: !activa }).eq('id', b.getAttribute('data-id'));
     renderAdminGamificacion();
   }));
+  /* ============================================================
+     FIX: al cambiar el estado de un canje, antes no pasaba nada más
+     que actualizar la fila en la BD — el cliente nunca se enteraba
+     de que su recompensa fue entregada (o cancelada). Ahora:
+       - Si pasa a "entregado" -> se le notifica al cliente.
+       - Si pasa a "cancelado" -> se le notifica Y se le devuelven
+         automáticamente los puntos que gastó al canjear (solo si
+         antes NO estaba ya cancelado, para no duplicar la devolución).
+     ============================================================ */
   document.querySelectorAll('.sel-canje').forEach(sel => sel.addEventListener('change', async ()=>{
-    await supabaseClient.from('canjes').update({ estado: sel.value }).eq('id', sel.getAttribute('data-id'));
+    const id = sel.getAttribute('data-id');
+    const nuevoEstado = sel.value;
+    const canje = (canjes||[]).find(c => c.id === id);
+    const { error: errUpd } = await supabaseClient.from('canjes').update({ estado: nuevoEstado }).eq('id', id);
+    if (logSupabaseError('actualizar estado de canje', errUpd)) { showToast('No se pudo actualizar el canje.', 3000, true); return; }
+
+    const nombreRecompensa = canje?.recompensas?.nombre || 'tu recompensa';
+    if (canje && canje.cliente_id) {
+      if (nuevoEstado === 'entregado') {
+        await crearNotificacion(canje.cliente_id, 'recompensa', `✅ ¡Tu recompensa "${nombreRecompensa}" fue entregada! Gracias por usar AguaTorre.`);
+      } else if (nuevoEstado === 'cancelado' && canje.estado !== 'cancelado') {
+        const costo = canje.recompensas?.costo_puntos || 0;
+        if (costo > 0) {
+          const puntosActuales = canje.clientes?.puntos || 0;
+          const { error: errRefund } = await supabaseClient.from('clientes').update({ puntos: puntosActuales + costo }).eq('id', canje.cliente_id);
+          logSupabaseError('devolver puntos por canje cancelado', errRefund);
+        }
+        await crearNotificacion(canje.cliente_id, 'recompensa', `❌ Tu canje de "${nombreRecompensa}" fue cancelado. Te devolvimos ${costo} puntos.`);
+      }
+    }
     showToast('Canje actualizado ✅');
+    renderAdminGamificacion();
   }));
 }
 
