@@ -10,6 +10,7 @@
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <style>
   :root{
     --agua-azul:#0ea5e9; --agua-oscuro:#0c4a6e; --agua-celeste:#e0f2fe;
@@ -56,6 +57,7 @@
   @keyframes skel{ 0%{background-position:100% 50%;} 100%{background-position:0 50%;} }
   .cart-badge{ position:absolute; top:-6px; right:-6px; background:#ef4444; color:#fff; font-size:10px; font-weight:700; border-radius:999px; min-width:18px; height:18px; display:flex; align-items:center; justify-content:center; padding:0 4px; }
   .stepper-btn{ width:34px; height:34px; border-radius:999px; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:18px; }
+  .ruta-captura{ background:#ffffff; }
 </style>
 </head>
 <body class="min-h-screen">
@@ -101,6 +103,7 @@ const safeStorage = {
 function clp(n){ return (n||0).toLocaleString('es-CL', { style:'currency', currency:'CLP', maximumFractionDigits:0 }); }
 function fechaCorta(iso){ return new Date(iso).toLocaleDateString('es-CL', { day:'2-digit', month:'short' }); }
 function fechaHora(iso){ return new Date(iso).toLocaleString('es-CL', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }); }
+function fechaLarga(d){ return (d||new Date()).toLocaleDateString('es-CL', { weekday:'long', day:'2-digit', month:'long' }); }
 function hoyStr(){ return new Date().toISOString().slice(0,10); }
 function ayerStr(){ const d = new Date(); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); }
 function uuidCorto(){ return Math.random().toString(36).slice(2,8).toUpperCase(); }
@@ -125,10 +128,49 @@ const DATOS_BANCARIOS = {
 };
 
 /* ============================================================
-   VENTANA DE ENTREGA — siempre el mismo día, entre 18:00 y 22:00.
+   VENTANA DE ENTREGA — DINÁMICA según el día de la semana.
+   Lunes a viernes: 18:00 a 22:00 (Diego reparte después del trabajo).
+   Sábado y domingo: en cualquier horario, hasta las 22:00.
    ============================================================ */
-const HORA_INICIO_ENTREGA = '18:00';
 const HORA_FIN_ENTREGA = '22:00';
+const HORA_INICIO_ENTREGA_SEMANA = '18:00';
+function esFinDeSemana(fecha){
+  const dia = (fecha || new Date()).getDay(); // 0=domingo, 6=sábado
+  return dia === 0 || dia === 6;
+}
+function horarioEntregaHoy(){
+  if (esFinDeSemana()) {
+    return { esFinde:true, inicio:null, fin:HORA_FIN_ENTREGA, textoCorto:`Hasta las ${HORA_FIN_ENTREGA}`, textoLargo:`En cualquier horario, hasta las ${HORA_FIN_ENTREGA} hrs` };
+  }
+  return { esFinde:false, inicio:HORA_INICIO_ENTREGA_SEMANA, fin:HORA_FIN_ENTREGA, textoCorto:`${HORA_INICIO_ENTREGA_SEMANA}-${HORA_FIN_ENTREGA}`, textoLargo:`Entre las ${HORA_INICIO_ENTREGA_SEMANA} y las ${HORA_FIN_ENTREGA} hrs` };
+}
+// Compatibilidad hacia atrás con código que aún referencia estas constantes fijas
+const HORA_INICIO_ENTREGA = HORA_INICIO_ENTREGA_SEMANA;
+
+/* ============================================================
+   RUTA DE REPARTO — orden lógico de torres y detección de piso.
+   Diego reparte solo, físicamente, y sube el edificio. La ruta
+   entra por la Torre D y baja desde el depto de número más alto
+   al más bajo, luego C, luego B, luego A (en ese orden fijo).
+   ============================================================ */
+const ORDEN_TORRES_RUTA = ['D','C','B','A'];
+function ordenTorre(torre){
+  const idx = ORDEN_TORRES_RUTA.indexOf(String(torre||'').trim().toUpperCase());
+  return idx === -1 ? ORDEN_TORRES_RUTA.length : idx;
+}
+function numeroDepto(depto){
+  const digitos = String(depto||'').replace(/\D/g,'');
+  return digitos ? parseInt(digitos,10) : 0;
+}
+/* Convención estándar de edificios: los últimos 2 dígitos son el
+   número de unidad dentro del piso; lo que queda antes es el piso.
+   Ej: "101"->piso 1, "205"->piso 2, "1203"->piso 12. */
+function pisoDeDepto(depto){
+  const digitos = String(depto||'').replace(/\D/g,'');
+  if (!digitos) return null;
+  if (digitos.length <= 2) return parseInt(digitos[0],10);
+  return parseInt(digitos.slice(0, digitos.length-2),10);
+}
 
 const PRECIOS_BIDON = { '20L': 2000, '12L': 1500 };
 let CATALOGO_PRODUCTOS = [];
@@ -193,14 +235,6 @@ function gotaMascota(size = 64, mood = 'feliz', extraClass = '') {
   </svg>`;
 }
 
-/* ============================================================
-   SISTEMA DE NIVELES ("Gotas") — FIX IMPORTANTE:
-   El nivel ahora se calcula EXCLUSIVAMENTE con los puntos
-   acumulados históricos ("puntos_totales"), NO con el saldo
-   canjeable ("puntos"). Así, cuando un cliente gasta puntos en
-   una recompensa, su saldo baja pero su NIVEL nunca retrocede,
-   porque puntos_totales solo sube con el tiempo.
-   ============================================================ */
 const NIVELES = [
   { min: 0,    nombre: 'Gota Inicial',   emoji:'💧', color:'from-sky-300 to-sky-400' },
   { min: 200,  nombre: 'Gota Activa',    emoji:'💧', color:'from-sky-400 to-cyan-500' },
@@ -220,19 +254,10 @@ function infoNivel(puntosTotales){
   const pct = siguiente ? Math.min(100, Math.round(((puntosTotales-base)/(tope-base))*100)) : 100;
   return { idx, actual, siguiente, pct, puntos: puntosTotales, faltan: siguiente ? (tope - puntosTotales) : 0, tope };
 }
-/* Helper: obtiene los puntos acumulados históricos de un cliente,
-   con respaldo hacia "puntos" para clientes creados antes de que
-   existiera la columna puntos_totales (compatibilidad). */
 function puntosTotalesDe(cliente){
   return (cliente && (cliente.puntos_totales != null ? cliente.puntos_totales : cliente.puntos)) || 0;
 }
 
-/* ============================================================
-   BONO SUTIL POR NIVEL: mientras más alto el nivel, un pequeño
-   porcentaje extra de puntos por cada acción (pedido, racha).
-   Esto crea una diferenciación real entre niveles sin que dejen
-   de tener sentido los umbrales de puntos.
-   ============================================================ */
 const MULTIPLICADOR_POR_NIVEL = [1, 1.05, 1.10, 1.15, 1.20, 1.30];
 function conBonusNivel(puntosBase, nivelIdx){
   const mult = MULTIPLICADOR_POR_NIVEL[nivelIdx] != null ? MULTIPLICADOR_POR_NIVEL[nivelIdx] : 1;
@@ -244,11 +269,6 @@ const PUNTOS_POR_RACHA_DIA = 20;
 const PUNTOS_POR_REFERIDO_INVITADOR = 200;
 const PUNTOS_POR_REFERIDO_INVITADO = 100;
 
-/* ============================================================
-   ESTADOS DE PEDIDO — simplificado a solo 2 estados principales
-   (Solicitado / Entregado). Cancelado se conserva como opción
-   operativa disponible solo en el panel admin.
-   ============================================================ */
 const ESTADOS_PEDIDO = ['solicitado','entregado','cancelado'];
 function normalizaEstado(estado){
   if (estado === 'pendiente') return 'solicitado';
@@ -295,6 +315,40 @@ function emptyState(emoji, titulo, subtitulo){
     <p class="font-semibold text-slate-600">${titulo}</p>
     ${subtitulo ? `<p class="text-sm text-slate-400 mt-1">${subtitulo}</p>` : ''}
   </div>`;
+}
+
+/* ============================================================
+   CAPTURA DE IMAGEN — usa html2canvas para convertir un div en
+   PNG y lo comparte directamente (Web Share API con archivos, si
+   el navegador lo soporta) o lo descarga como respaldo.
+   ============================================================ */
+async function capturarElementoComoImagen(elementId, nombreArchivo, textoCompartir){
+  const el = document.getElementById(elementId);
+  if (!el) { showToast('No se encontró el contenido a capturar.', 3000, true); return; }
+  if (!window.html2canvas) { showToast('No se pudo generar la imagen (html2canvas no cargó). Revisa tu conexión.', 4000, true); return; }
+  showToast('Generando imagen... 📸');
+  try {
+    const canvas = await html2canvas(el, { backgroundColor:'#ffffff', scale:2, useCORS:true });
+    canvas.toBlob(async (blob) => {
+      if (!blob) { showToast('No se pudo generar la imagen.', 3000, true); return; }
+      const archivo = new File([blob], nombreArchivo, { type:'image/png' });
+      if (navigator.canShare && navigator.canShare({ files:[archivo] })) {
+        try {
+          await navigator.share({ files:[archivo], title:'AguaTorre', text: textoCompartir || '' });
+          return;
+        } catch(e){ console.warn('Compartir cancelado, se ofrece descarga:', e); }
+      }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = nombreArchivo;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url), 4000);
+      showToast('Imagen descargada 📥 Compártela por WhatsApp desde tu galería.');
+    }, 'image/png');
+  } catch(err){
+    console.error('Error generando imagen:', err);
+    showToast('Error al generar la imagen: ' + (err.message||''), 3000, true);
+  }
 }
 </script>
 <script>
@@ -642,9 +696,6 @@ async function procesarReferido(codigo, clienteNuevo){
   });
   logSupabaseError('insertar registro de referido', errInsert);
 
-  /* FIX: los puntos de referido suman tanto al saldo canjeable
-     ("puntos") como a los puntos acumulados históricos
-     ("puntos_totales"), ya que son puntos GANADOS de verdad. */
   const { error: errInvitador } = await supabaseClient.from('clientes').update({
     puntos: (invitador.puntos||0) + PUNTOS_POR_REFERIDO_INVITADOR,
     puntos_totales: puntosTotalesDe(invitador) + PUNTOS_POR_REFERIDO_INVITADOR
@@ -691,9 +742,6 @@ async function renderHome(cliente){
   } else {
     logSupabaseError('recargar cliente en renderHome', errFresco);
   }
-  /* FIX: el nivel se calcula con los puntos ACUMULADOS históricos,
-     no con el saldo canjeable, para que nunca retroceda al gastar
-     puntos en recompensas. */
   const nivel = infoNivel(puntosTotalesDe(cliente));
   const { data: pedidos } = await supabaseClient
     .from('pedidos').select('*').eq('cliente_id', cliente.id).order('created_at', { ascending:false }).limit(30);
@@ -783,6 +831,8 @@ function pintarPasoPedido(cliente){
   const total = totalCarrito(carrito);
   const cantidadItems = cantidadTotalCarrito(carrito);
   const pasos = ['¿Qué necesitas?','¿Dónde lo entregamos?','¿Cuándo lo quieres?','Indicaciones'];
+  /* FIX: horario dinámico según el día (entresemana vs fin de semana) */
+  const horarioHoy = horarioEntregaHoy();
 
   let contenido = '';
   if (w.paso === 1) {
@@ -842,8 +892,10 @@ function pintarPasoPedido(cliente){
         </div>
       </div>`;
   } else if (w.paso === 3) {
+    /* FIX: opción "Hoy" ahora muestra el horario dinámico correcto
+       según si es día de semana (18-22) o fin de semana (hasta 22). */
     const opciones = [
-      { v:'hoy', label:`Hoy, entre ${HORA_INICIO_ENTREGA} y ${HORA_FIN_ENTREGA}`, icon:'🕕' },
+      { v:'hoy', label:`Hoy, ${horarioHoy.textoLargo}`, icon: horarioHoy.esFinde ? '🌤️' : '🕕' },
       { v:'programado', label:'Programar entrega', icon:'🗓️' },
     ];
     contenido = `
@@ -852,7 +904,7 @@ function pintarPasoPedido(cliente){
           <button data-horario="${o.v}" class="btn-horario w-full flex items-center gap-3 text-left rounded-xl px-4 py-3 border ${w.horario===o.v?'border-sky-500 bg-sky-50':'border-slate-200'}">
             <span class="text-xl">${o.icon}</span><span class="font-semibold text-slate-700">${o.label}</span>
           </button>`).join('')}
-        ${w.horario==='hoy' ? `<p class="text-xs text-slate-400 px-1 pt-1">Todos los pedidos se entregan el mismo día, entre las ${HORA_INICIO_ENTREGA} y las ${HORA_FIN_ENTREGA} hrs.</p>` : ''}
+        ${w.horario==='hoy' ? `<p class="text-xs text-slate-400 px-1 pt-1">${horarioHoy.esFinde ? 'Los fines de semana entregamos en cualquier horario, hasta las ' + HORA_FIN_ENTREGA + ' hrs.' : 'De lunes a viernes entregamos entre las ' + HORA_INICIO_ENTREGA_SEMANA + ' y las ' + HORA_FIN_ENTREGA + ' hrs.'}</p>` : ''}
         ${w.horario==='programado' ? `<input id="in-fecha-prog" type="datetime-local" value="${w.fecha_programada}" class="w-full border rounded-xl px-4 py-3 mt-2">` : ''}
       </div>`;
   } else if (w.paso === 4) {
@@ -886,7 +938,7 @@ function pintarPasoPedido(cliente){
         <div class="space-y-1.5 text-sm text-slate-600">
           ${filas}
           <div class="flex justify-between"><span>Dirección</span><b>Torre ${w.torre} · Depto ${w.depto}</b></div>
-          <div class="flex justify-between"><span>Horario</span><b>${w.horario==='hoy'?`Hoy, ${HORA_INICIO_ENTREGA}-${HORA_FIN_ENTREGA}`:'Programado'}</b></div>
+          <div class="flex justify-between"><span>Horario</span><b>${w.horario==='hoy'?`Hoy, ${horarioHoy.textoCorto}`:'Programado'}</b></div>
           <div class="flex justify-between border-t pt-2 mt-2 text-base"><span class="font-bold">Total</span><b class="text-sky-700">${clp(total)}</b></div>
         </div>
       </div>`;
@@ -997,15 +1049,6 @@ async function confirmarPedido(cliente){
       showToast('⚠️ Pedido creado, pero hubo un error guardando el detalle del carrito.', 5000, true);
     }
 
-    /* ============================================================
-       FIX: sistema de niveles por puntos ACUMULADOS + bono por nivel.
-       - "ganancia" y "puntosRacha" ahora se calculan con un pequeño
-         bono según el nivel actual del cliente (mientras más alto el
-         nivel, más puntos por acción).
-       - Se actualizan TANTO "puntos" (saldo canjeable) COMO
-         "puntos_totales" (histórico, usado para el nivel). Ambos
-         suben igual al ganar puntos; solo "puntos" baja al canjear.
-       ============================================================ */
     const nivelActualIdx = infoNivel(puntosTotalesDe(cliente)).idx;
     const ganancia = conBonusNivel(cantidadTotal * PUNTOS_POR_BIDON, nivelActualIdx);
     const nuevoTotalBidones = (cliente.bidones_totales||0) + cantidadTotal;
@@ -1089,6 +1132,9 @@ async function renderSeguimiento(cliente, pedidoId){
     ? items.map(it => `<div class="flex justify-between"><span>${it.cantidad} × ${it.nombre_producto}</span><b>${clp(it.subtotal)}</b></div>`).join('')
     : `<div class="flex justify-between"><span>Cantidad</span><b>${pedido.cantidad} × ${pedido.tipo_bidon}</b></div>`;
 
+  /* FIX: mensaje de horario dinámico según el día en que se creó el
+     pedido (usa el mismo helper que el wizard de pedido). */
+  const horarioMsg = horarioEntregaHoy();
   cont.innerHTML = `
     <div class="px-4">
       <div class="card p-5 mb-4 fade-in">
@@ -1099,7 +1145,7 @@ async function renderSeguimiento(cliente, pedidoId){
           </div>
           <span class="px-3 py-1.5 rounded-full text-xs font-bold ${estadoColor(pedido.estado)}">${estadoLabel(pedido.estado)}</span>
         </div>
-        ${estado==='solicitado' && pedido.horario_tipo==='hoy' ? `<div class="bg-sky-50 text-sky-700 text-sm rounded-xl px-4 py-2 mb-3">🕕 Tu pedido llega hoy, entre las <b>${HORA_INICIO_ENTREGA}</b> y las <b>${HORA_FIN_ENTREGA}</b> hrs.</div>` : ''}
+        ${estado==='solicitado' && pedido.horario_tipo==='hoy' ? `<div class="bg-sky-50 text-sky-700 text-sm rounded-xl px-4 py-2 mb-3">🕕 Tu pedido llega hoy, ${horarioMsg.textoLargo}.</div>` : ''}
         ${estado==='solicitado' && pedido.horario_tipo==='programado' && pedido.fecha_programada ? `<div class="bg-sky-50 text-sky-700 text-sm rounded-xl px-4 py-2 mb-3">🗓️ Entrega programada para <b>${fechaHora(pedido.fecha_programada)}</b>.</div>` : ''}
         ${estado==='cancelado' ? `<div class="bg-red-50 text-red-600 text-sm rounded-xl px-4 py-2 mb-3">Este pedido fue cancelado.</div>` : `<div class="space-y-1">${timeline}</div>`}
       </div>
@@ -1153,9 +1199,6 @@ function pintarHistorial(pedidos){
 <script>
 async function renderPuntos(cliente){
   app.innerHTML = shellCliente(`${headerSecundario('Puntos y niveles','#/home')}<div id="pts-content" class="px-4">${skeletonHome()}</div>`, 'puntos');
-  /* FIX: el nivel se calcula con puntos acumulados históricos
-     (puntos_totales), NO con el saldo canjeable. Esto garantiza que
-     canjear una recompensa nunca haga bajar de nivel al cliente. */
   const nivel = infoNivel(puntosTotalesDe(cliente));
   let recompensas = [];
   try { const { data } = await supabaseClient.from('recompensas').select('*').eq('activa', true).order('costo_puntos', { ascending:true }); recompensas = data || []; }
@@ -1243,9 +1286,6 @@ async function renderPuntos(cliente){
     try {
       const { error: e1 } = await supabaseClient.from('canjes').insert({ cliente_id: cliente.id, recompensa_id: b.getAttribute('data-id'), estado:'pendiente' });
       if (logSupabaseError('crear canje', e1)) throw e1;
-      /* FIX PRINCIPAL: al canjear, SOLO se descuenta el saldo canjeable
-         ("puntos"). "puntos_totales" (que determina el nivel) NO se
-         toca, así el nivel del cliente nunca retrocede al gastar. */
       const { error: e2 } = await supabaseClient.from('clientes').update({ puntos: cliente.puntos - costo }).eq('id', cliente.id);
       logSupabaseError('descontar puntos por canje', e2);
       await crearNotificacion(cliente.id, 'recompensa', '🎁 ¡Recompensa desbloqueada! Un administrador la validará pronto.');
@@ -1370,7 +1410,7 @@ const ADMIN_SECCIONES = [
   { id:'clientes', label:'Clientes', icon:'👥' },
   { id:'torres', label:'Torres', icon:'🏢' },
   { id:'inventario', label:'Inventario', icon:'💧' },
-  { id:'entregas', label:'Entregas', icon:'🚚' },
+  { id:'entregas', label:'Ruta de reparto', icon:'🗺️' },
   { id:'gamificacion', label:'Gamificación', icon:'⭐' },
   { id:'reportes', label:'Reportes', icon:'📈' },
   { id:'configuracion', label:'Configuración', icon:'⚙️' },
@@ -1604,8 +1644,6 @@ async function renderAdminClientes(){
   const filas = (clientes||[]).map(c => {
     const pedidosCliente = (pedidos||[]).filter(p=>p.cliente_id===c.id);
     const ultimaCompra = pedidosCliente[0] ? fechaCorta(pedidosCliente[0].created_at) : '—';
-    /* FIX: el nivel mostrado en admin también usa puntos_totales,
-       consistente con el resto de la app. */
     const nivel = infoNivel(puntosTotalesDe(c));
     return `
     <tr class="border-b hover:bg-slate-50 cursor-pointer btn-ver-cliente" data-id="${c.id}">
@@ -1876,65 +1914,151 @@ async function renderAdminInventario(){
   }));
 }
 
+/* ============================================================
+   ADMIN — RUTA DE REPARTO 🗺️
+   Diego reparte solo, físicamente. Esta pantalla junta todos los
+   pedidos "Solicitados", los ordena en un recorrido lógico
+   (Torre D → C → B → A, y dentro de cada torre del depto de
+   número más alto al más bajo, para bajar piso por piso), y
+   genera una imagen lista para compartir por WhatsApp.
+   ============================================================ */
 async function renderAdminEntregas(){
   const cont = document.getElementById('admin-content');
-  const { data: pedidos } = await supabaseClient.from('pedidos').select('*, clientes(nombre, torre, depto)').in('estado', ['solicitado','pendiente']).order('created_at', { ascending:false });
-  let repartidores = [];
-  try { const { data } = await supabaseClient.from('repartidores').select('*'); repartidores = data || []; }
-  catch(e){ console.warn('Tabla repartidores no disponible aún.'); }
-
-  const filas = (pedidos||[]).map(p => `
-    <tr class="border-b hover:bg-slate-50">
-      <td class="py-2 px-3 text-xs font-mono">#${p.id.toString().slice(0,8).toUpperCase()}</td>
-      <td class="py-2 px-3 text-sm">${p.clientes?.nombre||p.nombre_solicitante||'—'}</td>
-      <td class="py-2 px-3 text-sm">${p.clientes?.torre||'-'}</td>
-      <td class="py-2 px-3 text-sm">${p.clientes?.depto||'-'}</td>
-      <td class="py-2 px-3">
-        <select data-id="${p.id}" class="sel-repartidor text-xs border rounded-lg px-2 py-1">
-          <option value="">Sin asignar</option>
-          ${repartidores.map(r => `<option value="${r.id}" ${p.repartidor_id===r.id?'selected':''}>${r.nombre}</option>`).join('')}
-        </select>
-      </td>
-      <td class="py-2 px-3 text-xs"><span class="px-2 py-1 rounded-full ${estadoColor(p.estado)}">${estadoLabel(p.estado)}</span></td>
-      <td class="py-2 px-3"><input data-id="${p.id}" class="in-hora-estimada text-xs border rounded-lg px-2 py-1 w-28" placeholder="15-20 min" value="${p.hora_estimada||''}"></td>
-      <td class="py-2 px-3 text-xs text-slate-400">${p.hora_entrega ? fechaHora(p.hora_entrega) : '—'}</td>
-    </tr>`).join('');
-
+  const horario = horarioEntregaHoy();
   cont.innerHTML = `
-    <h1 class="text-2xl font-bold text-slate-800 mb-1 fade-in">Entregas</h1>
-    <p class="text-slate-500 text-sm mb-4">Pedidos activos y asignación de repartidores.</p>
-    ${repartidores.length===0 ? `
-      <div class="card p-4 mb-4">
-        <p class="text-sm font-semibold text-slate-600 mb-2">Aún no has agregado repartidores</p>
-        <div class="flex gap-2">
-          <input id="in-rep-nombre" placeholder="Nombre" class="border rounded-lg px-2 py-1.5 text-sm flex-1">
-          <input id="in-rep-telefono" placeholder="Teléfono" class="border rounded-lg px-2 py-1.5 text-sm w-32">
-          <button id="btn-crear-rep" class="btn-primary px-3 text-sm">Agregar</button>
+    <h1 class="text-2xl font-bold text-slate-800 mb-1 fade-in">🗺️ Ruta de reparto</h1>
+    <p class="text-slate-500 text-sm mb-4">Genera el recorrido lógico de tus entregas del día, listo para compartir por WhatsApp.</p>
+    <div class="card p-5 mb-4 fade-in">
+      <div class="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <p class="font-bold text-slate-700">📅 Horario de hoy</p>
+          <p class="text-sm text-slate-500 capitalize">${fechaLarga()}</p>
+          <p class="text-xs text-sky-600 font-semibold mt-0.5">${horario.esFinde?'🌤️':'🕕'} ${horario.textoLargo}</p>
         </div>
-      </div>` : ''}
-    <div class="card overflow-x-auto">
-      <table class="w-full text-left">
-        <thead class="bg-slate-50 text-xs text-slate-500 uppercase"><tr><th class="py-2 px-3">Pedido</th><th class="py-2 px-3">Cliente</th><th class="py-2 px-3">Torre</th><th class="py-2 px-3">Depto</th><th class="py-2 px-3">Repartidor</th><th class="py-2 px-3">Estado</th><th class="py-2 px-3">Hora estimada</th><th class="py-2 px-3">Hora entrega</th></tr></thead>
-        <tbody>${filas || `<tr><td colspan="8" class="py-8 text-center text-slate-400">No hay entregas activas.</td></tr>`}</tbody>
-      </table>
+        <button id="btn-generar-ruta" class="btn-primary px-6 py-3">🗺️ Generar ruta del día</button>
+      </div>
+    </div>
+    <div id="ruta-resultado"></div>
+  `;
+  document.getElementById('btn-generar-ruta').addEventListener('click', generarYPintarRuta);
+  await generarYPintarRuta();
+}
+
+async function generarYPintarRuta(){
+  const contResultado = document.getElementById('ruta-resultado');
+  if (!contResultado) return;
+  contResultado.innerHTML = skeletonHome();
+
+  const { data: pedidos, error } = await supabaseClient
+    .from('pedidos')
+    .select('*, clientes(nombre, apellido, telefono, torre, depto)')
+    .in('estado', ['solicitado','pendiente'])
+    .order('created_at', { ascending:true });
+  if (logSupabaseError('cargar pedidos para ruta', error)) {
+    contResultado.innerHTML = emptyState('⚠️','No se pudo cargar la ruta', error.message||'');
+    return;
+  }
+  const lista = pedidos || [];
+  if (lista.length === 0) {
+    contResultado.innerHTML = emptyState('🎉','¡No hay pedidos pendientes por entregar!','Cuando tengas pedidos solicitados, aparecerán aquí ordenados para tu ruta.');
+    return;
+  }
+
+  // Trae el detalle de productos de cada pedido (en paralelo)
+  const itemsPorPedido = {};
+  await Promise.all(lista.map(async (p) => {
+    try {
+      const { data: items } = await supabaseClient.from('pedido_items').select('*').eq('pedido_id', p.id);
+      itemsPorPedido[p.id] = items || [];
+    } catch(e){ itemsPorPedido[p.id] = []; }
+  }));
+
+  // Orden lógico: Torre D -> C -> B -> A; dentro de cada torre, depto
+  // de mayor a menor número (equivale a bajar piso por piso).
+  const ordenados = lista.slice().sort((a,b)=>{
+    const ta = ordenTorre(a.clientes?.torre), tb = ordenTorre(b.clientes?.torre);
+    if (ta !== tb) return ta - tb;
+    return numeroDepto(b.clientes?.depto) - numeroDepto(a.clientes?.depto);
+  });
+
+  const torresPresentes = [...new Set(ordenados.map(p => (p.clientes?.torre||'—').toString().toUpperCase()))];
+  const totalBidones = ordenados.reduce((a,p)=>a+(p.cantidad||0),0);
+  const horario = horarioEntregaHoy();
+
+  let html = `
+    <div id="ruta-captura" class="ruta-captura card p-5 mb-4 fade-in">
+      <div class="text-center mb-4 pb-4 border-b-2 border-sky-100">
+        <p class="text-2xl font-extrabold text-sky-700">💧 AguaTorre — Ruta de reparto</p>
+        <p class="text-sm text-slate-500 capitalize">${fechaLarga()}</p>
+        <p class="text-xs text-slate-400 mt-1">${horario.esFinde?'🌤️':'🕕'} ${horario.textoLargo}</p>
+      </div>
+      <div class="flex justify-center gap-6 mb-5 text-center">
+        <div><p class="text-xl font-extrabold text-sky-700">${ordenados.length}</p><p class="text-xs text-slate-500">Paradas</p></div>
+        <div><p class="text-xl font-extrabold text-sky-700">${totalBidones}</p><p class="text-xs text-slate-500">Unidades</p></div>
+        <div><p class="text-xl font-extrabold text-sky-700">${torresPresentes.length}</p><p class="text-xs text-slate-500">Torres</p></div>
+      </div>
+  `;
+
+  let torreActual = null;
+  let numeroParada = 0;
+  ordenados.forEach((p) => {
+    const torre = (p.clientes?.torre || '—').toString().toUpperCase();
+    if (torre !== torreActual) {
+      if (torreActual !== null) html += `</div>`;
+      torreActual = torre;
+      const countTorre = ordenados.filter(x => (x.clientes?.torre||'—').toString().toUpperCase() === torre).length;
+      html += `
+        <div class="mb-4">
+          <p class="font-bold text-sky-700 text-sm uppercase tracking-wide mb-2 flex items-center gap-2">🏢 Torre ${torre} <span class="text-xs text-slate-400 font-normal normal-case">(${countTorre} parada${countTorre>1?'s':''})</span></p>
+      `;
+    }
+    numeroParada++;
+    const piso = pisoDeDepto(p.clientes?.depto);
+    const items = itemsPorPedido[p.id] || [];
+    const itemsTexto = items.length>0 ? items.map(it=>`${it.cantidad}×${it.nombre_producto}`).join(', ') : `${p.cantidad}×${p.tipo_bidon}`;
+    const esEfectivo = p.metodo_pago === 'efectivo';
+    html += `
+      <div class="flex items-start gap-3 py-3 ${numeroParada>1?'border-t border-slate-100':''}">
+        <div class="w-8 h-8 rounded-full bg-sky-600 text-white flex items-center justify-center font-bold text-sm shrink-0">${numeroParada}</div>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="font-extrabold text-slate-800">Depto ${p.clientes?.depto||'-'}</span>
+            ${piso!=null ? `<span class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">Piso ${piso}</span>` : ''}
+            ${esEfectivo ? `<span class="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold">💵 Cobrar ${clp(p.total||0)}</span>` : `<span class="text-xs bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full font-semibold">🏦 Transferencia</span>`}
+          </div>
+          <p class="text-sm text-slate-600">${p.clientes?.nombre||p.nombre_solicitante||'—'} ${p.clientes?.apellido||''} ${p.clientes?.telefono?`· 📞 ${p.clientes.telefono}`:''}</p>
+          <p class="text-sm text-slate-500">${itemsTexto}</p>
+          ${p.indicaciones ? `<p class="text-xs text-amber-600 mt-0.5">📝 ${p.indicaciones}</p>` : ''}
+        </div>
+        <button data-id="${p.id}" class="btn-marcar-entregado-ruta text-xs bg-green-100 text-green-700 px-3 py-1.5 rounded-full font-semibold shrink-0" data-html2canvas-ignore="true">✅ Entregado</button>
+      </div>
+    `;
+  });
+  if (torreActual !== null) html += `</div>`;
+
+  html += `
+      <p class="text-center text-[11px] text-slate-300 mt-2">Generado con AguaTorre 💧 · ${new Date().toLocaleString('es-CL')}</p>
+    </div>
+    <div class="flex gap-3 mb-8">
+      <button id="btn-imagen-ruta" class="btn-primary flex-1 py-3">📸 Generar imagen para WhatsApp</button>
+      <button id="btn-refrescar-ruta" class="btn-ghost px-4 py-3">🔄</button>
     </div>
   `;
 
-  const btnRep = document.getElementById('btn-crear-rep');
-  if (btnRep) btnRep.addEventListener('click', async ()=>{
-    const nombre = document.getElementById('in-rep-nombre').value.trim();
-    const telefono = document.getElementById('in-rep-telefono').value.trim();
-    if (!nombre) { showToast('Ingresa un nombre'); return; }
-    try { const { error } = await supabaseClient.from('repartidores').insert({ nombre, telefono, calificacion:5.0 }); if (logSupabaseError('crear repartidor', error)) { showToast('No se pudo agregar: '+error.message, 4000, true); return; } showToast('Repartidor agregado ✅'); renderAdminEntregas(); }
-    catch(e){ showToast('No se pudo agregar (¿falta la tabla repartidores?): ' + (e.message||''), 4000, true); }
+  contResultado.innerHTML = html;
+
+  document.getElementById('btn-imagen-ruta').addEventListener('click', ()=>{
+    capturarElementoComoImagen('ruta-captura', `ruta-aguatorre-${hoyStr()}.png`, `Ruta de reparto AguaTorre 💧 - ${ordenados.length} paradas`);
   });
-  document.querySelectorAll('.sel-repartidor').forEach(sel => sel.addEventListener('change', async ()=>{
-    await supabaseClient.from('pedidos').update({ repartidor_id: sel.value || null }).eq('id', sel.getAttribute('data-id'));
-    showToast('Repartidor asignado 🚚');
-  }));
-  document.querySelectorAll('.in-hora-estimada').forEach(inp => inp.addEventListener('change', async ()=>{
-    await supabaseClient.from('pedidos').update({ hora_estimada: inp.value }).eq('id', inp.getAttribute('data-id'));
-    showToast('Hora estimada guardada ⏱️');
+  document.getElementById('btn-refrescar-ruta').addEventListener('click', generarYPintarRuta);
+  document.querySelectorAll('.btn-marcar-entregado-ruta').forEach(b => b.addEventListener('click', async ()=>{
+    const id = b.getAttribute('data-id');
+    const pedido = ordenados.find(p=>p.id===id);
+    const { error: errUpd } = await supabaseClient.from('pedidos').update({ estado:'entregado', hora_entrega: new Date().toISOString() }).eq('id', id);
+    if (logSupabaseError('marcar entregado desde ruta', errUpd)) { showToast('No se pudo marcar como entregado.', 3000, true); return; }
+    if (pedido && pedido.cliente_id) await crearNotificacion(pedido.cliente_id, 'pedido', '✅ Tu pedido fue entregado. ¡Gracias por preferir AguaTorre!');
+    showToast('Marcado como entregado ✅');
+    await generarYPintarRuta();
   }));
 }
 </script>
@@ -2012,10 +2136,6 @@ async function renderAdminGamificacion(){
     renderAdminGamificacion();
   }));
 
-  /* FIX: al cambiar el estado de un canje, ahora se notifica al
-     cliente y, si se cancela, se le DEVUELVE el saldo canjeable
-     gastado (sin tocar puntos_totales, ya que el nivel no debe
-     verse afectado por canjes ni por sus cancelaciones). */
   document.querySelectorAll('.sel-canje').forEach(sel => sel.addEventListener('change', async ()=>{
     const id = sel.getAttribute('data-id');
     const nuevoEstado = sel.value;
@@ -2090,6 +2210,10 @@ async function renderAdminConfiguracion(){
     <div class="card p-5 mb-4">
       <h3 class="font-bold text-slate-700 mb-2">Precios y catálogo</h3>
       <p class="text-sm text-slate-600">Los precios ya no están fijos en el código: se administran desde <a href="#/admin/productos" class="text-sky-600 font-semibold underline">Productos</a>, donde puedes agregar, editar o desactivar cualquier cantidad de productos.</p>
+    </div>
+    <div class="card p-5 mb-4">
+      <h3 class="font-bold text-slate-700 mb-2">Horario y reparto</h3>
+      <p class="text-sm text-slate-600">Hoy repartes tú mismo. De lunes a viernes entregas entre las ${HORA_INICIO_ENTREGA_SEMANA} y las ${HORA_FIN_ENTREGA} hrs; los fines de semana, en cualquier horario hasta las ${HORA_FIN_ENTREGA} hrs. La sección <a href="#/admin/entregas" class="text-sky-600 font-semibold underline">Ruta de reparto</a> ordena tus pedidos pendientes por Torre (D→C→B→A) y por piso, y genera una imagen lista para WhatsApp.</p>
     </div>
     <div class="card p-5 mb-4">
       <h3 class="font-bold text-slate-700 mb-2">Sistema de niveles</h3>
