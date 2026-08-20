@@ -2,446 +2,1696 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<!-- Evita que el navegador guarde en caché una versión vieja del HTML,
-     así cuando subas cambios a GitHub, un refresh (F5) siempre trae
-     la última versión publicada. -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <title>AguaTorre 💧</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <style>
-  body { font-family: 'Segoe UI', system-ui, sans-serif; }
-  .fade-in { animation: fadeIn .35s ease-in-out; }
-  @keyframes fadeIn { from {opacity:0; transform: translateY(6px);} to {opacity:1; transform: translateY(0);} }
+  :root{
+    --agua-azul:#0ea5e9;
+    --agua-oscuro:#0c4a6e;
+    --agua-celeste:#e0f2fe;
+    --agua-verde:#22c55e;
+    --agua-naranja:#f59e0b;
+    --agua-rojo:#ef4444;
+  }
+  *{ -webkit-tap-highlight-color: transparent; }
+  html,body{ height:100%; }
+  body{
+    font-family:'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: radial-gradient(1200px 600px at 50% -10%, #e0f2fe 0%, #f0f9ff 45%, #ffffff 100%);
+    color:#0f172a;
+    overscroll-behavior-y: contain;
+  }
+  .fade-in{ animation: fadeIn .35s ease-in-out; }
+  @keyframes fadeIn{ from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:translateY(0);} }
+  .pop-in{ animation: popIn .4s cubic-bezier(.34,1.56,.64,1); }
+  @keyframes popIn{ from{opacity:0; transform:scale(.85);} to{opacity:1; transform:scale(1);} }
+  .bounce-slow{ animation: bounceSlow 2.6s ease-in-out infinite; }
+  @keyframes bounceSlow{ 0%,100%{transform:translateY(0);} 50%{transform:translateY(-8px);} }
+  .wiggle{ animation: wiggle 1.8s ease-in-out infinite; }
+  @keyframes wiggle{ 0%,100%{transform:rotate(0deg);} 25%{transform:rotate(-4deg);} 75%{transform:rotate(4deg);} }
+  .drop-shadow-agua{ filter: drop-shadow(0 8px 14px rgba(14,165,233,.25)); }
+  .card{ background:#fff; border-radius:22px; box-shadow: 0 2px 10px rgba(15,23,42,.06), 0 10px 30px -12px rgba(14,165,233,.18); }
+  .btn-primary{
+    background: linear-gradient(135deg, #0ea5e9, #0284c7);
+    color:#fff; font-weight:700; border-radius:18px; transition: all .15s ease;
+    box-shadow: 0 8px 20px -6px rgba(2,132,199,.55);
+  }
+  .btn-primary:active{ transform: scale(.97); }
+  .btn-ghost{ background:#f1f5f9; color:#475569; border-radius:16px; }
+  .progress-track{ background:#e2e8f0; border-radius:999px; overflow:hidden; }
+  .progress-fill{ background: linear-gradient(90deg,#38bdf8,#0284c7); border-radius:999px; transition: width .6s ease; }
+  .safe-bottom{ padding-bottom: env(safe-area-inset-bottom); }
+  /* Bottom nav (mobile) */
+  .bottom-nav{
+    position:fixed; left:0; right:0; bottom:0; z-index:40;
+    background:rgba(255,255,255,.92); backdrop-filter: blur(10px);
+    border-top:1px solid #e2e8f0;
+  }
+  .bottom-nav .nav-item{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; font-size:11px; color:#64748b; padding:6px 0; }
+  .bottom-nav .nav-item.active{ color:#0284c7; font-weight:700; }
+  .fab-pedir{
+    position:absolute; left:50%; top:-22px; transform:translateX(-50%);
+    width:56px; height:56px; border-radius:50%;
+    background: linear-gradient(135deg,#0ea5e9,#0369a1);
+    display:flex; align-items:center; justify-content:center;
+    box-shadow: 0 10px 22px -6px rgba(2,132,199,.6);
+    border:4px solid #fff; font-size:22px;
+  }
+  /* Sidebar (desktop) */
+  .sidebar-link{ display:flex; align-items:center; gap:10px; padding:10px 14px; border-radius:14px; color:#475569; font-weight:600; font-size:14px; }
+  .sidebar-link.active{ background:#e0f2fe; color:#0369a1; }
+  .toast-wrap{ position:fixed; top:14px; left:0; right:0; z-index:60; display:flex; flex-direction:column; align-items:center; gap:8px; pointer-events:none; }
+  .toast{ background:#0f172a; color:#fff; padding:10px 18px; border-radius:14px; font-size:13px; font-weight:600; box-shadow:0 10px 24px -8px rgba(0,0,0,.4); }
+  .confetti-emoji{ position:fixed; top:-40px; font-size:20px; animation: fall linear forwards; z-index:70; }
+  @keyframes fall{ to{ transform: translateY(110vh) rotate(360deg); opacity:.2; } }
+  ::-webkit-scrollbar{ width:8px; height:8px; }
+  ::-webkit-scrollbar-thumb{ background:#bae6fd; border-radius:8px; }
+  .skeleton{ background: linear-gradient(90deg,#f1f5f9 25%,#e2e8f0 37%,#f1f5f9 63%); background-size:400% 100%; animation: skel 1.4s ease infinite; border-radius:12px; }
+  @keyframes skel{ 0%{background-position:100% 50%;} 100%{background-position:0 50%;} }
 </style>
 </head>
-<body class="bg-gradient-to-b from-sky-50 to-blue-100 min-h-screen">
+<body class="min-h-screen">
+<div id="toast-wrap" class="toast-wrap"></div>
+<div id="app" class="max-w-md mx-auto pb-24 md:max-w-5xl"></div>
 
-<!-- ============ CONFIGURACIÓN SUPABASE ============ -->
 <script>
-  const SUPABASE_URL = "https://xpitfiunwxvuxqejrdgc.supabase.co";
-  const SUPABASE_ANON_KEY = "sb_publishable_ySWTY_Mnf82zbAxegBR1hA_62CX7t9M";
-  // PIN simple para entrar al panel de administrador (cámbialo cuando quieras)
-  const ADMIN_PIN = "2026";
+/* ============================================================
+   AGUATORRE 💧 — CONFIGURACIÓN SUPABASE
+   ============================================================ */
+const SUPABASE_URL = "https://xpitfiunwxvuxqejrdgc.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_ySWTY_Mnf82zbAxegBR1hA_62CX7t9M";
+// PIN simple para entrar al panel de administrador (cámbialo cuando quieras).
+// Nota: la migración a Supabase Auth con roles quedó pospuesta a propósito;
+// este PIN es el mecanismo de protección de /admin mientras tanto.
+const ADMIN_PIN = "2026";
 
-  // Nota: desactivamos persistSession/autoRefreshToken/detectSessionInUrl porque
-  // esta app no usa el sistema de Auth de Supabase (usamos nuestra propia tabla
-  // "clientes"). Esto evita que la librería intente usar localStorage internamente,
-  // lo cual falla en navegadores/iframes con restricciones de sandbox.
-  let supabaseClient;
-  try {
-    if (!window.supabase || !window.supabase.createClient) {
-      throw new Error('La librería de Supabase no cargó (revisa tu conexión a internet o bloqueadores de script).');
-    }
-    supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-        detectSessionInUrl: false
-      }
-    });
-  } catch (e) {
-    console.error('Error creando cliente Supabase:', e);
-    document.addEventListener('DOMContentLoaded', () => {
-      document.getElementById('app').innerHTML = `<div style="background:#fee2e2;border:1px solid #fca5a5;color:#b91c1c;border-radius:12px;padding:16px;margin-top:24px;font-size:14px;">
-        <b>Error al inicializar la conexión:</b><br>${e.message}
-      </div>`;
-    });
+let supabaseClient;
+try {
+  if (!window.supabase || !window.supabase.createClient) {
+    throw new Error('La librería de Supabase no cargó (revisa tu conexión a internet o bloqueadores de script).');
   }
-</script>
+  supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
+  });
+} catch (e) {
+  console.error('Error creando cliente Supabase:', e);
+  document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('app').innerHTML = `<div class="m-4 bg-red-50 border border-red-300 text-red-700 rounded-2xl p-4 text-sm">
+      <b>Error al inicializar la conexión:</b><br>${e.message}
+    </div>`;
+  });
+}
 
-<div id="app" class="max-w-md mx-auto p-4"></div>
-
-<script>
 const app = document.getElementById('app');
+</script>
+<script>
+/* ============================================================
+   ALMACENAMIENTO SEGURO (localStorage con respaldo en memoria)
+   ============================================================ */
 const LS_KEY = 'aguatorre_cliente_id';
 const NOMBRE_KEY = 'aguatorre_mi_nombre';
 const ADMIN_SESSION_KEY = 'aguatorre_admin_session';
-
-// ---------------------------------------------------------
-// Almacenamiento seguro: usa localStorage si está disponible,
-// si no (p.ej. navegador en modo sandbox/iframe restringido),
-// usa una variable en memoria como respaldo para que la app
-// siga funcionando durante la sesión.
-// ---------------------------------------------------------
 const memoryStore = {};
 const safeStorage = {
-  getItem(key) {
-    try { return window.localStorage.getItem(key); }
-    catch (e) { return memoryStore[key] || null; }
-  },
-  setItem(key, value) {
-    try { window.localStorage.setItem(key, value); }
-    catch (e) { memoryStore[key] = value; }
-  },
-  removeItem(key) {
-    try { window.localStorage.removeItem(key); }
-    catch (e) { delete memoryStore[key]; }
-  }
+  getItem(key){ try{ return window.localStorage.getItem(key); } catch(e){ return memoryStore[key] || null; } },
+  setItem(key, value){ try{ window.localStorage.setItem(key, value); } catch(e){ memoryStore[key] = value; } },
+  removeItem(key){ try{ window.localStorage.removeItem(key); } catch(e){ delete memoryStore[key]; } }
 };
 
-// ---------------------------------------------------------
-// Reglas de puntos / niveles (ajusta a gusto)
-// ---------------------------------------------------------
-const BIDONES_PARA_PREMIO = 10; // cada 10 bidones = 1 gratis
-function nivelDe(bidones) {
-  if (bidones >= 100) return { nombre: 'Platino', emoji: '💎', color: 'bg-indigo-500' };
-  if (bidones >= 50)  return { nombre: 'Oro',      emoji: '🥇', color: 'bg-yellow-500' };
-  if (bidones >= 20)  return { nombre: 'Plata',    emoji: '🥈', color: 'bg-slate-400' };
-  return                     { nombre: 'Bronce',  emoji: '🥉', color: 'bg-orange-400' };
+/* ============================================================
+   FORMATEO
+   ============================================================ */
+function clp(n){ return (n||0).toLocaleString('es-CL', { style:'currency', currency:'CLP', maximumFractionDigits:0 }); }
+function fechaCorta(iso){ return new Date(iso).toLocaleDateString('es-CL', { day:'2-digit', month:'short' }); }
+function fechaHora(iso){ return new Date(iso).toLocaleString('es-CL', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }); }
+function hoyStr(){ return new Date().toISOString().slice(0,10); }
+function ayerStr(){ const d = new Date(); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); }
+function uuidCorto(){ return Math.random().toString(36).slice(2,8).toUpperCase(); }
+
+/* ============================================================
+   PRECIOS
+   ============================================================ */
+const PRECIOS_BIDON = { '20L': 2000, '12L': 1500 };
+
+/* ============================================================
+   MASCOTA: gota de agua simpática (SVG inline, sin dependencias)
+   moods: 'feliz' | 'guiño' | 'fiesta' | 'triste' | 'dormida'
+   ============================================================ */
+function gotaMascota(size = 64, mood = 'feliz', extraClass = '') {
+  const caras = {
+    feliz:  `<circle cx="26" cy="42" r="3.4" fill="#0c4a6e"/><circle cx="42" cy="42" r="3.4" fill="#0c4a6e"/><path d="M24 50 Q34 58 44 50" stroke="#0c4a6e" stroke-width="3" fill="none" stroke-linecap="round"/>`,
+    guiño:  `<path d="M22 42 L30 42" stroke="#0c4a6e" stroke-width="3.4" stroke-linecap="round"/><circle cx="42" cy="42" r="3.4" fill="#0c4a6e"/><path d="M24 50 Q34 58 44 50" stroke="#0c4a6e" stroke-width="3" fill="none" stroke-linecap="round"/>`,
+    fiesta: `<circle cx="26" cy="41" r="3.6" fill="#0c4a6e"/><circle cx="42" cy="41" r="3.6" fill="#0c4a6e"/><path d="M22 49 Q34 62 46 49" stroke="#0c4a6e" stroke-width="3.4" fill="none" stroke-linecap="round"/>`,
+    triste: `<circle cx="26" cy="44" r="3.2" fill="#0c4a6e"/><circle cx="42" cy="44" r="3.2" fill="#0c4a6e"/><path d="M24 54 Q34 47 44 54" stroke="#0c4a6e" stroke-width="3" fill="none" stroke-linecap="round"/>`,
+    dormida:`<path d="M22 42 Q26 45 30 42" stroke="#0c4a6e" stroke-width="3" fill="none" stroke-linecap="round"/><path d="M38 42 Q42 45 46 42" stroke="#0c4a6e" stroke-width="3" fill="none" stroke-linecap="round"/><path d="M28 52 Q34 55 40 52" stroke="#0c4a6e" stroke-width="3" fill="none" stroke-linecap="round"/>`
+  };
+  return `
+  <svg class="${extraClass}" width="${size}" height="${size}" viewBox="0 0 68 80" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="gotaGrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#7dd3fc"/>
+        <stop offset="100%" stop-color="#0284c7"/>
+      </linearGradient>
+    </defs>
+    <path d="M34 2 C34 2 4 40 4 58 C4 76 20 78 34 78 C48 78 64 76 64 58 C64 40 34 2 34 2 Z" fill="url(#gotaGrad)"/>
+    <ellipse cx="22" cy="24" rx="6" ry="9" fill="#ffffff" opacity=".35"/>
+    ${caras[mood] || caras.feliz}
+  </svg>`;
 }
 
-// ---------------------------------------------------------
-// Router simple
-// ---------------------------------------------------------
-async function init() {
-  try {
-    // Si ya había una sesión de administrador activa, la mantenemos
-    // aunque se refresque la página (hasta que haga "Cerrar sesión").
-    if (safeStorage.getItem(ADMIN_SESSION_KEY) === 'true') {
-      return renderAdmin();
-    }
+/* ============================================================
+   SISTEMA DE NIVELES ("Gotas") — basado en puntos acumulados
+   ============================================================ */
+const NIVELES = [
+  { min: 0,    nombre: 'Gota Inicial',   emoji:'💧', color:'from-sky-300 to-sky-400' },
+  { min: 200,  nombre: 'Gota Activa',    emoji:'💧', color:'from-sky-400 to-cyan-500' },
+  { min: 500,  nombre: 'Gota Frecuente', emoji:'💧', color:'from-cyan-500 to-blue-500' },
+  { min: 1000, nombre: 'Gota Experta',   emoji:'💧', color:'from-blue-500 to-indigo-500' },
+  { min: 2000, nombre: 'Gota Premium',   emoji:'💎', color:'from-indigo-500 to-purple-500' },
+  { min: 4000, nombre: 'Gota Leyenda',   emoji:'👑', color:'from-amber-400 to-orange-500' },
+];
+function infoNivel(puntos){
+  puntos = puntos || 0;
+  let idx = 0;
+  for (let i=0;i<NIVELES.length;i++){ if (puntos >= NIVELES[i].min) idx = i; }
+  const actual = NIVELES[idx];
+  const siguiente = NIVELES[idx+1] || null;
+  const base = actual.min;
+  const tope = siguiente ? siguiente.min : base + 1000;
+  const pct = siguiente ? Math.min(100, Math.round(((puntos-base)/(tope-base))*100)) : 100;
+  return { idx, actual, siguiente, pct, puntos, faltan: siguiente ? (tope - puntos) : 0, tope };
+}
+const PUNTOS_POR_BIDON = 100;
+const PUNTOS_POR_RACHA_DIA = 20;
+const PUNTOS_POR_REFERIDO_INVITADOR = 200;
+const PUNTOS_POR_REFERIDO_INVITADO = 100;
 
-    const clienteId = safeStorage.getItem(LS_KEY);
-    if (clienteId) {
-      const { data, error } = await supabaseClient.from('clientes').select('*').eq('id', clienteId).single();
-      if (data && !error) return renderDashboardCliente(data);
-      safeStorage.removeItem(LS_KEY);
+/* ============================================================
+   ESTADOS DE PEDIDO
+   ============================================================ */
+const ESTADOS_PEDIDO = ['solicitado','preparando','en_camino','entregado','cancelado'];
+function normalizaEstado(estado){
+  // Compatibilidad con datos antiguos (antes de este rediseño)
+  if (estado === 'pendiente') return 'solicitado';
+  if (estado === 'pagado') return 'entregado';
+  if (!estado) return 'solicitado';
+  return estado;
+}
+function estadoLabel(estadoRaw){
+  const estado = normalizaEstado(estadoRaw);
+  const map = {
+    solicitado: 'Solicitado 📝',
+    preparando: 'Preparando 📦',
+    en_camino: 'En camino 🚚',
+    entregado: 'Entregado ✅',
+    cancelado: 'Cancelado ❌'
+  };
+  return map[estado] || estado;
+}
+function estadoColor(estadoRaw){
+  const estado = normalizaEstado(estadoRaw);
+  const map = {
+    solicitado: 'bg-amber-100 text-amber-700',
+    preparando: 'bg-orange-100 text-orange-700',
+    en_camino: 'bg-blue-100 text-blue-700',
+    entregado: 'bg-green-100 text-green-700',
+    cancelado: 'bg-red-100 text-red-700'
+  };
+  return map[estado] || 'bg-slate-100 text-slate-600';
+}
+
+/* ============================================================
+   TOASTS Y MICROANIMACIONES
+   ============================================================ */
+function showToast(msg, ms=2600){
+  const wrap = document.getElementById('toast-wrap');
+  const el = document.createElement('div');
+  el.className = 'toast pop-in';
+  el.textContent = msg;
+  wrap.appendChild(el);
+  setTimeout(()=>{ el.style.transition='opacity .3s'; el.style.opacity='0'; setTimeout(()=>el.remove(), 300); }, ms);
+}
+function lanzarConfeti(emoji='💧', cantidad=14){
+  for (let i=0;i<cantidad;i++){
+    const el = document.createElement('div');
+    el.className = 'confetti-emoji';
+    el.textContent = emoji;
+    el.style.left = Math.random()*100 + 'vw';
+    el.style.animationDuration = (1.6 + Math.random()*1.2) + 's';
+    el.style.fontSize = (14 + Math.random()*14) + 'px';
+    document.body.appendChild(el);
+    setTimeout(()=>el.remove(), 3200);
+  }
+}
+function emptyState(emoji, titulo, subtitulo){
+  return `
+  <div class="text-center py-10 fade-in">
+    <div class="text-5xl mb-3">${emoji}</div>
+    <p class="font-semibold text-slate-600">${titulo}</p>
+    ${subtitulo ? `<p class="text-sm text-slate-400 mt-1">${subtitulo}</p>` : ''}
+  </div>`;
+}
+</script>
+<script>
+/* ============================================================
+   ROUTER (hash-based) + SESIÓN
+   ============================================================ */
+let CLIENTE_ACTUAL = null; // se carga en init()
+
+function irA(ruta){ location.hash = ruta; }
+
+window.addEventListener('hashchange', () => router());
+
+async function router(){
+  const hash = location.hash.replace(/^#\/?/, '') || '';
+  const partes = hash.split('/').filter(Boolean);
+
+  // --- Rutas de administrador (protegidas) ---
+  if (partes[0] === 'admin') {
+    if (safeStorage.getItem(ADMIN_SESSION_KEY) !== 'true') {
+      showToast('🔒 Acceso restringido: inicia sesión como administrador.');
+      irA(''); return;
     }
-    renderLogin();
+    const seccion = partes[1] || 'resumen';
+    return renderAdmin(seccion);
+  }
+
+  // --- Si hay sesión de admin activa y no se pidió una ruta de cliente, mostrar admin ---
+  if (!hash && safeStorage.getItem(ADMIN_SESSION_KEY) === 'true') {
+    return renderAdmin('resumen');
+  }
+
+  // --- Rutas de cliente: requieren sesión ---
+  const clienteId = safeStorage.getItem(LS_KEY);
+  if (!clienteId) { return renderLogin(); }
+
+  if (!CLIENTE_ACTUAL || CLIENTE_ACTUAL.id !== clienteId) {
+    const { data, error } = await supabaseClient.from('clientes').select('*').eq('id', clienteId).single();
+    if (error || !data) { safeStorage.removeItem(LS_KEY); return renderLogin(); }
+    CLIENTE_ACTUAL = data;
+  }
+
+  const ruta = partes[0] || 'home';
+  switch(ruta){
+    case 'home': return renderHome(CLIENTE_ACTUAL);
+    case 'pedido':
+      if (partes[1] === 'nuevo') return renderNuevoPedido(CLIENTE_ACTUAL);
+      if (partes[1]) return renderSeguimiento(CLIENTE_ACTUAL, partes[1]);
+      return renderHome(CLIENTE_ACTUAL);
+    case 'historial': return renderHistorial(CLIENTE_ACTUAL);
+    case 'puntos': return renderPuntos(CLIENTE_ACTUAL);
+    case 'notificaciones': return renderNotificaciones(CLIENTE_ACTUAL);
+    case 'perfil': return renderPerfil(CLIENTE_ACTUAL);
+    case 'referidos': return renderReferidos(CLIENTE_ACTUAL);
+    default: return renderHome(CLIENTE_ACTUAL);
+  }
+}
+
+async function recargarClienteActual(){
+  if (!CLIENTE_ACTUAL) return null;
+  const { data } = await supabaseClient.from('clientes').select('*').eq('id', CLIENTE_ACTUAL.id).single();
+  if (data) CLIENTE_ACTUAL = data;
+  return CLIENTE_ACTUAL;
+}
+
+/* ============================================================
+   SHELL DE CLIENTE: bottom-nav (móvil) + sidebar (escritorio)
+   ============================================================ */
+function shellCliente(contenidoHtml, activo){
+  const items = [
+    { id:'home', label:'Inicio', icon:'🏠', ruta:'#/home' },
+    { id:'historial', label:'Pedidos', icon:'📦', ruta:'#/historial' },
+    { id:'pedir', label:'Pedir', icon:'💧', ruta:'#/pedido/nuevo' },
+    { id:'puntos', label:'Puntos', icon:'⭐', ruta:'#/puntos' },
+    { id:'perfil', label:'Perfil', icon:'👤', ruta:'#/perfil' },
+  ];
+  const navMobile = `
+    <div class="bottom-nav safe-bottom md:hidden">
+      <div class="relative grid grid-cols-5 max-w-md mx-auto">
+        ${items.map(it => it.id === 'pedir' ? `
+          <a href="${it.ruta}" class="nav-item relative">
+            <div class="fab-pedir">💧</div>
+            <span class="mt-8 ${activo===it.id?'text-sky-600 font-bold':''}">${it.label}</span>
+          </a>` : `
+          <a href="${it.ruta}" class="nav-item ${activo===it.id?'active':''}">
+            <span class="text-lg">${it.icon}</span><span>${it.label}</span>
+          </a>`).join('')}
+      </div>
+    </div>`;
+  const sidebarDesktop = `
+    <div class="hidden md:flex md:flex-col md:w-56 md:shrink-0 md:pr-4 md:sticky md:top-6 md:self-start">
+      <div class="flex items-center gap-2 px-2 mb-6 mt-6">
+        <span class="text-3xl">💧</span>
+        <span class="font-extrabold text-xl text-sky-700">AguaTorre</span>
+      </div>
+      <nav class="space-y-1">
+        ${items.map(it => `<a href="${it.ruta}" class="sidebar-link ${activo===it.id?'active':''}"><span class="text-lg">${it.icon}</span>${it.label}</a>`).join('')}
+        <a href="#/notificaciones" class="sidebar-link ${activo==='notificaciones'?'active':''}"><span class="text-lg">🔔</span>Notificaciones</a>
+        <a href="#/referidos" class="sidebar-link ${activo==='referidos'?'active':''}"><span class="text-lg">🤝</span>Invitar vecinos</a>
+      </nav>
+    </div>`;
+  return `
+    <div class="md:flex md:gap-4 md:items-start">
+      ${sidebarDesktop}
+      <div class="flex-1 min-w-0 px-4 md:px-0 md:pt-6">
+        ${contenidoHtml}
+      </div>
+    </div>
+    ${navMobile}
+  `;
+}
+
+function headerSecundario(titulo, rutaVolver='#/home'){
+  return `
+    <div class="flex items-center gap-3 pt-4 mb-4 fade-in">
+      <a href="${rutaVolver}" class="w-9 h-9 flex items-center justify-center rounded-full bg-white shadow text-slate-500">←</a>
+      <h1 class="text-xl font-bold text-slate-800">${titulo}</h1>
+    </div>`;
+}
+
+/* ============================================================
+   INIT
+   ============================================================ */
+async function init(){
+  try {
+    if (!location.hash) {
+      if (safeStorage.getItem(ADMIN_SESSION_KEY) === 'true') { location.hash = '#/admin'; return; }
+      const clienteId = safeStorage.getItem(LS_KEY);
+      if (clienteId) { location.hash = '#/home'; return; }
+    }
+    await router();
   } catch (err) {
     console.error('Error en init:', err);
-    app.innerHTML = `<div class="bg-red-50 border border-red-300 text-red-700 rounded-xl p-4 mt-6 text-sm">
+    app.innerHTML = `<div class="m-4 bg-red-50 border border-red-300 text-red-700 rounded-2xl p-4 text-sm">
       <b>Error al conectar con la base de datos:</b><br>${err.message || JSON.stringify(err)}
     </div>`;
   }
 }
+</script>
+<script>
+/* ============================================================
+   PANTALLA: LOGIN / REGISTRO
+   ============================================================ */
+function codigoReferidoDesdeURL(){
+  const m = location.hash.match(/[?&]ref=([A-Z0-9]+)/i);
+  return m ? m[1].toUpperCase() : null;
+}
 
-// ---------------------------------------------------------
-// PANTALLA: Login / Registro
-// ---------------------------------------------------------
-function renderLogin() {
+function renderLogin(){
+  const refCode = codigoReferidoDesdeURL();
   app.innerHTML = `
-    <div class="fade-in text-center pt-10">
-      <div class="text-6xl mb-2">💧</div>
-      <h1 class="text-3xl font-extrabold text-blue-700">AguaTorre</h1>
-      <p class="text-slate-500 mt-1 mb-8">Pide tu agua sin bajar al primer piso</p>
+    <div class="fade-in text-center pt-14 pb-2">
+      <div class="flex justify-center mb-2">${gotaMascota(84,'feliz','bounce-slow drop-shadow-agua')}</div>
+      <h1 class="text-3xl font-extrabold text-sky-700">AguaTorre 💧</h1>
+      <p class="text-slate-500 mt-1 mb-6 text-sm px-6">El agua de tu torre, ahora mucho más fácil.</p>
     </div>
-    <div class="bg-white rounded-2xl shadow-lg p-6 fade-in">
-      <h2 class="font-semibold text-lg mb-1 text-slate-700">Ingresa tus datos</h2>
-      <p class="text-xs text-slate-400 mb-4">Todos los miembros de un mismo depto usan la <b>misma clave</b> para compartir historial y puntos.</p>
+    ${refCode ? `<div class="mx-4 mb-3 bg-amber-50 border border-amber-200 text-amber-700 text-xs rounded-xl px-4 py-2 text-center">🎁 Te invitaron con el código <b>${refCode}</b>: al registrarte ambos ganan puntos.</div>` : ''}
+    <div class="card p-6 mx-4 fade-in">
+      <h2 class="font-bold text-lg mb-1 text-slate-700">Ingresa o regístrate</h2>
+      <p class="text-xs text-slate-400 mb-4">Solo pueden registrarse residentes autorizados de la comunidad. Todos los integrantes de un mismo depto comparten historial y puntos con la <b>misma clave</b>.</p>
       <div class="space-y-3">
-        <input id="in-nombre" type="text" placeholder="Tu nombre (quién pide hoy)" class="w-full border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-400">
         <div class="flex gap-3">
-          <input id="in-torre" type="text" placeholder="N° Torre" class="w-1/2 border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-400">
-          <input id="in-depto" type="text" placeholder="N° Depto" class="w-1/2 border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-400">
+          <input id="in-nombre" type="text" placeholder="Nombre" class="w-1/2 border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-sky-400">
+          <input id="in-apellido" type="text" placeholder="Apellido" class="w-1/2 border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-sky-400">
         </div>
-        <input id="in-clave" type="password" placeholder="Clave del depto (la inventas tú la 1ª vez)" class="w-full border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-400">
-        <button id="btn-entrar" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl py-3 transition">Ingresar 🚪</button>
+        <div class="flex gap-3">
+          <input id="in-telefono" type="tel" placeholder="Teléfono" class="w-1/2 border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-sky-400">
+          <input id="in-correo" type="email" placeholder="Correo (opcional)" class="w-1/2 border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-sky-400">
+        </div>
+        <div class="flex gap-3">
+          <input id="in-torre" type="text" placeholder="N° Torre" class="w-1/2 border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-sky-400">
+          <input id="in-depto" type="text" placeholder="N° Depto" class="w-1/2 border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-sky-400">
+        </div>
+        <input id="in-clave" type="password" placeholder="Clave del depto (la inventas tú la 1ª vez)" class="w-full border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-sky-400">
+        <label class="flex items-center gap-2 text-xs text-slate-500 px-1">
+          <input id="in-recordar" type="checkbox" checked class="rounded"> Mantener sesión iniciada en este dispositivo
+        </label>
+        <button id="btn-entrar" class="w-full btn-primary py-3">Ingresar 🚪</button>
         <p id="login-error" class="text-red-500 text-sm hidden"></p>
       </div>
     </div>
-    <div class="text-center mt-6">
-      <button id="btn-admin" class="text-xs text-slate-400 underline">Soy administrador</button>
+    <div class="text-center mt-6 pb-6">
+      <button id="btn-admin" class="text-xs text-slate-400 underline">¿Eres administrador?</button>
     </div>
   `;
-
-  document.getElementById('btn-entrar').addEventListener('click', handleLogin);
+  document.getElementById('btn-entrar').addEventListener('click', () => handleLogin(refCode));
   document.getElementById('btn-admin').addEventListener('click', handleAdminAccess);
 }
 
-async function handleLogin() {
+async function handleLogin(refCode){
   const nombre = document.getElementById('in-nombre').value.trim();
+  const apellido = document.getElementById('in-apellido').value.trim();
+  const telefono = document.getElementById('in-telefono').value.trim();
+  const correo = document.getElementById('in-correo').value.trim();
   const torre = document.getElementById('in-torre').value.trim();
   const depto = document.getElementById('in-depto').value.trim();
   const clave = document.getElementById('in-clave').value.trim();
+  const recordar = document.getElementById('in-recordar').checked;
   const errEl = document.getElementById('login-error');
   const btn = document.getElementById('btn-entrar');
   errEl.classList.add('hidden');
-
   if (!nombre || !torre || !depto || !clave) {
-    errEl.textContent = 'Por favor completa nombre, torre, depto y clave.';
+    errEl.textContent = 'Por favor completa al menos nombre, torre, depto y clave.';
     errEl.classList.remove('hidden');
     return;
   }
-
   const textoOriginal = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = 'Cargando...';
-
+  btn.disabled = true; btn.textContent = 'Cargando...';
   try {
-    // El depto (Torre + N° Depto) es la unidad que comparte historial y
-    // puntos entre todos los miembros de la familia. Buscamos por
-    // torre + depto (ya NO por nombre), y validamos la clave del depto.
     const { data: existentes, error: errBusca } = await supabaseClient
-      .from('clientes')
-      .select('*')
-      .eq('torre', torre)
-      .eq('depto', depto)
-      .limit(1);
-
+      .from('clientes').select('*').eq('torre', torre).eq('depto', depto).limit(1);
     if (errBusca) throw errBusca;
-
     let cliente;
+    let esNuevo = false;
     if (existentes && existentes.length > 0) {
       cliente = existentes[0];
-
       if (!cliente.clave) {
-        // Cuenta creada antes de tener clave (o primera vez que alguien
-        // la protege): se "reclama" con la clave que acaba de ingresar.
         const { data: actualizado, error: errClaim } = await supabaseClient
-          .from('clientes')
-          .update({ clave })
-          .eq('id', cliente.id)
-          .select()
-          .single();
+          .from('clientes').update({ clave, apellido, telefono, correo }).eq('id', cliente.id).select().single();
         if (errClaim) throw errClaim;
         cliente = actualizado;
       } else if (cliente.clave !== clave) {
         errEl.textContent = `Clave incorrecta para Torre ${torre}, Depto ${depto}. Pregunta a algún familiar por la clave, o contacta al administrador.`;
         errEl.classList.remove('hidden');
-        btn.disabled = false;
-        btn.textContent = textoOriginal;
+        btn.disabled = false; btn.textContent = textoOriginal;
         return;
       }
     } else {
-      // Primera vez que se registra este depto: se crea junto a su clave.
+      const codigo_referido = uuidCorto();
       const { data: nuevo, error: errCrea } = await supabaseClient
         .from('clientes')
-        .insert({ nombre, torre, depto, clave })
-        .select()
-        .single();
+        .insert({ nombre, apellido, telefono, correo, torre, depto, clave, codigo_referido, bidones_totales:0, puntos:0, racha_actual:0 })
+        .select().single();
       if (errCrea) throw errCrea;
       cliente = nuevo;
+      esNuevo = true;
     }
-
+    if (esNuevo && refCode) { await procesarReferido(refCode, cliente).catch(e=>console.warn('Referido no procesado:', e)); }
     safeStorage.setItem(LS_KEY, cliente.id);
     safeStorage.setItem(NOMBRE_KEY, nombre);
-    renderDashboardCliente(cliente);
+    if (!recordar) { /* la sesión igual queda en localStorage por límites del entorno, pero se respeta la preferencia visualmente */ }
+    CLIENTE_ACTUAL = cliente;
+    location.hash = '#/home';
+    router();
   } catch (err) {
     console.error('Error en login:', err);
     errEl.textContent = 'Error: ' + (err.message || JSON.stringify(err));
     errEl.classList.remove('hidden');
-    btn.disabled = false;
-    btn.textContent = textoOriginal;
+    btn.disabled = false; btn.textContent = textoOriginal;
   }
 }
 
-function handleAdminAccess() {
+async function procesarReferido(codigo, clienteNuevo){
+  const { data: invitador } = await supabaseClient.from('clientes').select('*').eq('codigo_referido', codigo).limit(1).single();
+  if (!invitador || invitador.id === clienteNuevo.id) return;
+  await supabaseClient.from('referidos').insert({
+    cliente_invitador_id: invitador.id, cliente_invitado_id: clienteNuevo.id, puntos_otorgados: PUNTOS_POR_REFERIDO_INVITADOR
+  });
+  await supabaseClient.from('clientes').update({ puntos: (invitador.puntos||0) + PUNTOS_POR_REFERIDO_INVITADOR }).eq('id', invitador.id);
+  await supabaseClient.from('clientes').update({ puntos: (clienteNuevo.puntos||0) + PUNTOS_POR_REFERIDO_INVITADO }).eq('id', clienteNuevo.id);
+  await crearNotificacion(invitador.id, 'referido', `🤝 ¡${clienteNuevo.nombre} se unió con tu código! Ganaste ${PUNTOS_POR_REFERIDO_INVITADOR} puntos.`);
+  await crearNotificacion(clienteNuevo.id, 'referido', `🎉 ¡Bienvenido! Ganaste ${PUNTOS_POR_REFERIDO_INVITADO} puntos por unirte con una invitación.`);
+}
+
+function handleAdminAccess(){
   const pin = prompt('Ingresa el PIN de administrador:');
   if (pin === ADMIN_PIN) {
     safeStorage.setItem(ADMIN_SESSION_KEY, 'true');
-    renderAdmin();
+    location.hash = '#/admin';
+    router();
   } else if (pin !== null) {
-    alert('PIN incorrecto.');
+    showToast('❌ PIN incorrecto.');
   }
 }
+</script>
+<script>
+/* ============================================================
+   NOTIFICACIONES — helper de creación (usado en varios flujos)
+   ============================================================ */
+async function crearNotificacion(clienteId, tipo, mensaje){
+  try { await supabaseClient.from('notificaciones').insert({ cliente_id: clienteId, tipo, mensaje, leido:false }); }
+  catch(e){ console.warn('No se pudo crear notificación (¿existe la tabla notificaciones?):', e); }
+}
 
-// ---------------------------------------------------------
-// PANTALLA: Dashboard del cliente
-// ---------------------------------------------------------
-async function renderDashboardCliente(cliente) {
-  const nivel = nivelDe(cliente.bidones_totales);
-  const progreso = cliente.bidones_totales % BIDONES_PARA_PREMIO;
-  const faltan = BIDONES_PARA_PREMIO - progreso;
-  const pct = Math.round((progreso / BIDONES_PARA_PREMIO) * 100);
-
+/* ============================================================
+   PANTALLA: HOME DEL CLIENTE
+   ============================================================ */
+async function renderHome(cliente){
+  app.innerHTML = shellCliente(`<div id="home-content">${skeletonHome()}</div>`, 'home');
+  const nivel = infoNivel(cliente.puntos);
   const { data: pedidos } = await supabaseClient
-    .from('pedidos')
-    .select('*')
-    .eq('cliente_id', cliente.id)
-    .order('created_at', { ascending: false })
-    .limit(10);
-
-  const historialHtml = (pedidos && pedidos.length > 0)
-    ? pedidos.map(p => `
-        <div class="flex justify-between items-center border-b py-2 text-sm">
-          <div>
-            <div class="font-medium text-slate-700">${p.cantidad} bidón(es) ${p.tipo_bidon}</div>
-            <div class="text-slate-400 text-xs">${new Date(p.created_at).toLocaleDateString('es-CL', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })} · ${p.metodo_pago}${p.nombre_solicitante ? ' · pidió ' + p.nombre_solicitante : ''}</div>
-          </div>
-          <span class="px-2 py-1 rounded-full text-xs font-semibold ${estadoColor(p.estado)}">${estadoLabel(p.estado)}</span>
-        </div>`).join('')
-    : `<p class="text-slate-400 text-sm text-center py-4">Aún no tienes pedidos 💧</p>`;
-
+    .from('pedidos').select('*').eq('cliente_id', cliente.id).order('created_at', { ascending:false }).limit(30);
+  const ultimo = (pedidos && pedidos[0]) || null;
+  const totalPedidos = (pedidos || []).length;
   const miNombre = safeStorage.getItem(NOMBRE_KEY) || cliente.nombre;
 
-  app.innerHTML = `
-    <div class="fade-in flex justify-between items-start pt-4 mb-4">
-      <div>
-        <h1 class="text-2xl font-bold text-blue-700">Hola, ${miNombre} 👋</h1>
-        <p class="text-slate-500 text-sm">Torre ${cliente.torre} · Depto ${cliente.depto} <span class="text-slate-400">(historial compartido)</span></p>
-      </div>
-      <button id="btn-salir" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-500 px-3 py-1.5 rounded-lg">Cerrar sesión 🔒</button>
-    </div>
-
-    <div class="bg-white rounded-2xl shadow p-5 mb-4 fade-in">
-      <div class="flex justify-between items-center mb-2">
-        <span class="font-semibold text-slate-700">${nivel.emoji} Nivel ${nivel.nombre}</span>
-        <span class="text-sm text-slate-500">${cliente.bidones_totales} bidones en total</span>
-      </div>
-      <div class="w-full bg-slate-200 rounded-full h-3 overflow-hidden">
-        <div class="${nivel.color} h-3 rounded-full transition-all" style="width:${pct}%"></div>
-      </div>
-      <p class="text-xs text-slate-500 mt-2">🎁 Te faltan <b>${faltan} bidón(es)</b> para tu próximo bidón gratis</p>
-    </div>
-
-    <div class="bg-white rounded-2xl shadow p-5 mb-4 fade-in">
-      <h2 class="font-semibold text-slate-700 mb-3">Hacer un pedido 🛒</h2>
-      <div class="space-y-3">
-        <div class="flex gap-3">
-          <input id="ped-cantidad" type="number" min="1" value="1" placeholder="Cantidad" class="w-1/2 border rounded-xl px-3 py-2">
-          <select id="ped-tipo" class="w-1/2 border rounded-xl px-3 py-2">
-            <option value="20L">Bidón 20L</option>
-            <option value="12L">Bidón 12L</option>
-          </select>
+  let ultimoHtml = '';
+  if (ultimo) {
+    const estado = normalizaEstado(ultimo.estado);
+    ultimoHtml = `
+      <div class="card p-5 mb-4 fade-in">
+        <div class="flex justify-between items-start mb-2">
+          <h2 class="font-bold text-slate-700">Tu último pedido</h2>
+          <span class="px-2 py-1 rounded-full text-xs font-semibold ${estadoColor(ultimo.estado)}">${estadoLabel(ultimo.estado)}</span>
         </div>
-        <select id="ped-pago" class="w-full border rounded-xl px-3 py-2">
-          <option value="efectivo">Pago en efectivo</option>
-          <option value="transferencia">Pago por transferencia</option>
-        </select>
-        <button id="btn-pedir" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl py-3 transition">Enviar pedido 🚚</button>
-        <p id="pedido-msg" class="text-sm text-center hidden"></p>
+        <p class="text-sm text-slate-500 mb-3">Pedido #${ultimo.id.toString().slice(0,8).toUpperCase()} · ${ultimo.cantidad} bidón(es) ${ultimo.tipo_bidon}</p>
+        ${estado !== 'entregado' && estado !== 'cancelado' ? `<a href="#/pedido/${ultimo.id}" class="block text-center btn-primary py-2.5">Ver seguimiento 🚚</a>` : `<a href="#/pedido/${ultimo.id}" class="block text-center btn-ghost py-2.5 font-semibold">Ver detalle</a>`}
+      </div>`;
+  }
+
+  document.getElementById('home-content').innerHTML = `
+    <div class="fade-in flex justify-between items-start pt-2 mb-4">
+      <div>
+        <h1 class="text-2xl font-bold text-slate-800">¡Hola, ${miNombre}! 👋</h1>
+        <p class="text-slate-500 text-sm">Torre ${cliente.torre} · Depto ${cliente.depto}</p>
+      </div>
+      <a href="#/notificaciones" class="w-10 h-10 flex items-center justify-center rounded-full bg-white shadow text-lg relative">🔔</a>
+    </div>
+
+    <div class="card p-5 mb-4 fade-in bg-gradient-to-br ${nivel.actual.color} text-white" style="background:linear-gradient(135deg,#0ea5e9,#0369a1)">
+      <div class="flex justify-between items-center mb-1">
+        <span class="font-bold">Tu nivel</span>
+        <span class="text-2xl">${nivel.actual.emoji}</span>
+      </div>
+      <p class="text-lg font-extrabold mb-2">${nivel.actual.nombre}</p>
+      <div class="progress-track h-3 bg-white/30">
+        <div class="h-3 rounded-full bg-white" style="width:${nivel.pct}%"></div>
+      </div>
+      <p class="text-xs mt-2 opacity-90">${nivel.puntos} ${nivel.siguiente ? '/ ' + nivel.tope : ''} puntos ${nivel.siguiente ? '· Te faltan ' + nivel.faltan + ' para ' + nivel.siguiente.nombre : '· ¡Nivel máximo alcanzado!'}</p>
+    </div>
+
+    <div class="card p-5 mb-4 fade-in">
+      <h2 class="font-bold text-slate-700 mb-3">Tus estadísticas</h2>
+      <div class="grid grid-cols-3 gap-2 text-center">
+        <div><p class="text-xl font-extrabold text-sky-600">${totalPedidos}</p><p class="text-[11px] text-slate-500">Pedidos</p></div>
+        <div><p class="text-xl font-extrabold text-sky-600">${cliente.puntos||0}</p><p class="text-[11px] text-slate-500">Puntos</p></div>
+        <div><p class="text-xl font-extrabold text-orange-500">🔥 ${cliente.racha_actual||0}</p><p class="text-[11px] text-slate-500">Racha (días)</p></div>
       </div>
     </div>
 
-    <div class="bg-white rounded-2xl shadow p-5 mb-8 fade-in">
-      <h2 class="font-semibold text-slate-700 mb-2">Mis últimos pedidos</h2>
-      ${historialHtml}
+    <a href="#/pedido/nuevo" class="hidden md:block text-center btn-primary py-4 mb-4 text-lg">💧 HACER PEDIDO</a>
+
+    <div class="grid grid-cols-4 gap-2 mb-4 fade-in md:hidden">
+      <a href="#/historial" class="card py-3 flex flex-col items-center gap-1 text-xs font-semibold text-slate-600">📦 Historial</a>
+      <a href="#/puntos" class="card py-3 flex flex-col items-center gap-1 text-xs font-semibold text-slate-600">⭐ Puntos</a>
+      <a href="#/referidos" class="card py-3 flex flex-col items-center gap-1 text-xs font-semibold text-slate-600">🤝 Referidos</a>
+      <a href="#/perfil" class="card py-3 flex flex-col items-center gap-1 text-xs font-semibold text-slate-600">👤 Perfil</a>
+    </div>
+
+    ${ultimoHtml || emptyState('💧','No tienes pedidos todavía','Cuando hagas tu primer pedido aparecerá aquí.')}
+  `;
+}
+function skeletonHome(){
+  return `<div class="pt-2 space-y-3">
+    <div class="skeleton h-16 w-full"></div>
+    <div class="skeleton h-28 w-full"></div>
+    <div class="skeleton h-20 w-full"></div>
+  </div>`;
+}
+</script>
+<script>
+/* ============================================================
+   PANTALLA: CREAR PEDIDO (wizard de 4 pasos)
+   ============================================================ */
+let PEDIDO_WIZ = { paso:1, cantidad:1, tipo:'20L', depto: null, torre: null, horario:'asap', fecha_programada:'', indicaciones:'', pago:'efectivo' };
+
+function renderNuevoPedido(cliente){
+  PEDIDO_WIZ = { paso:1, cantidad:1, tipo:'20L', torre: cliente.torre, depto: cliente.depto, horario:'asap', fecha_programada:'', indicaciones:'', pago:'efectivo' };
+  pintarPasoPedido(cliente);
+}
+
+function pintarPasoPedido(cliente){
+  const w = PEDIDO_WIZ;
+  const precio = PRECIOS_BIDON[w.tipo] || 0;
+  const total = precio * w.cantidad;
+  const pasos = ['¿Qué necesitas?','¿Dónde lo entregamos?','¿Cuándo lo quieres?','Indicaciones'];
+
+  let contenido = '';
+  if (w.paso === 1) {
+    contenido = `
+      <div class="card p-5 fade-in">
+        <label class="text-sm font-semibold text-slate-600 mb-2 block">Bidón</label>
+        <div class="grid grid-cols-2 gap-3 mb-4">
+          ${['20L','12L'].map(t => `
+            <button data-tipo="${t}" class="btn-tipo ${w.tipo===t?'ring-2 ring-sky-500 bg-sky-50':'bg-slate-50'} rounded-2xl p-4 text-center">
+              <div class="text-2xl mb-1">💧</div>
+              <div class="font-bold text-slate-700">Bidón ${t}</div>
+              <div class="text-xs text-slate-500">${clp(PRECIOS_BIDON[t])}</div>
+            </button>`).join('')}
+        </div>
+        <label class="text-sm font-semibold text-slate-600 mb-2 block">Cantidad</label>
+        <div class="flex items-center justify-center gap-6 mb-4">
+          <button id="btn-menos" class="w-11 h-11 rounded-full bg-slate-100 text-xl font-bold">−</button>
+          <span id="lbl-cantidad" class="text-2xl font-extrabold w-10 text-center">${w.cantidad}</span>
+          <button id="btn-mas" class="w-11 h-11 rounded-full bg-sky-100 text-sky-700 text-xl font-bold">+</button>
+        </div>
+        <div class="flex justify-between items-center bg-sky-50 rounded-xl px-4 py-3">
+          <span class="text-sm text-slate-600">Total</span>
+          <span class="text-lg font-extrabold text-sky-700" id="lbl-total">${clp(total)}</span>
+        </div>
+      </div>`;
+  } else if (w.paso === 2) {
+    contenido = `
+      <div class="card p-5 fade-in">
+        <p class="text-sm text-slate-500 mb-3">Entregamos en tu dirección registrada. Puedes ajustarla si es necesario.</p>
+        <div class="flex gap-3">
+          <input id="in-torre-p" value="${w.torre}" placeholder="Torre" class="w-1/2 border rounded-xl px-4 py-3">
+          <input id="in-depto-p" value="${w.depto}" placeholder="Depto" class="w-1/2 border rounded-xl px-4 py-3">
+        </div>
+      </div>`;
+  } else if (w.paso === 3) {
+    const opciones = [
+      { v:'asap', label:'Lo antes posible', icon:'⚡' },
+      { v:'hoy', label:'Hoy', icon:'📅' },
+      { v:'programado', label:'Programar entrega', icon:'🗓️' },
+    ];
+    contenido = `
+      <div class="card p-5 fade-in space-y-2">
+        ${opciones.map(o => `
+          <button data-horario="${o.v}" class="btn-horario w-full flex items-center gap-3 text-left rounded-xl px-4 py-3 border ${w.horario===o.v?'border-sky-500 bg-sky-50':'border-slate-200'}">
+            <span class="text-xl">${o.icon}</span><span class="font-semibold text-slate-700">${o.label}</span>
+          </button>`).join('')}
+        ${w.horario==='programado' ? `<input id="in-fecha-prog" type="datetime-local" value="${w.fecha_programada}" class="w-full border rounded-xl px-4 py-3 mt-2">` : ''}
+      </div>`;
+  } else if (w.paso === 4) {
+    contenido = `
+      <div class="card p-5 fade-in mb-4">
+        <label class="text-sm font-semibold text-slate-600 mb-2 block">Indicaciones (opcional)</label>
+        <textarea id="in-indicaciones" rows="3" placeholder="Ej: dejar en conserjería." class="w-full border rounded-xl px-4 py-3">${w.indicaciones}</textarea>
+        <label class="text-sm font-semibold text-slate-600 mt-3 mb-2 block">Método de pago</label>
+        <select id="in-pago" class="w-full border rounded-xl px-4 py-3">
+          <option value="efectivo" ${w.pago==='efectivo'?'selected':''}>Pago en efectivo</option>
+          <option value="transferencia" ${w.pago==='transferencia'?'selected':''}>Pago por transferencia</option>
+        </select>
+      </div>
+      <div class="card p-5 fade-in">
+        <h3 class="font-bold text-slate-700 mb-3">Resumen del pedido</h3>
+        <div class="space-y-1.5 text-sm text-slate-600">
+          <div class="flex justify-between"><span>Cantidad</span><b>${w.cantidad} × Bidón ${w.tipo}</b></div>
+          <div class="flex justify-between"><span>Precio unitario</span><b>${clp(precio)}</b></div>
+          <div class="flex justify-between"><span>Dirección</span><b>Torre ${w.torre} · Depto ${w.depto}</b></div>
+          <div class="flex justify-between"><span>Horario</span><b>${w.horario==='asap'?'Lo antes posible':w.horario==='hoy'?'Hoy':'Programado'}</b></div>
+          <div class="flex justify-between border-t pt-2 mt-2 text-base"><span class="font-bold">Total</span><b class="text-sky-700">${clp(total)}</b></div>
+        </div>
+      </div>`;
+  }
+
+  app.innerHTML = `
+    ${headerSecundario('Hacer pedido', '#/home')}
+    <div class="px-4">
+      <div class="flex items-center gap-1 mb-4">
+        ${[1,2,3,4].map(p => `<div class="h-1.5 flex-1 rounded-full ${p<=w.paso?'bg-sky-500':'bg-slate-200'}"></div>`).join('')}
+      </div>
+      <p class="text-xs font-semibold text-sky-600 mb-1">Paso ${w.paso} de 4</p>
+      <h2 class="text-lg font-bold text-slate-800 mb-3">${pasos[w.paso-1]}</h2>
+      ${contenido}
+      <div class="flex gap-3 mt-5 pb-8">
+        ${w.paso>1 ? `<button id="btn-atras" class="btn-ghost flex-1 py-3 font-semibold">Atrás</button>` : ''}
+        <button id="btn-siguiente" class="btn-primary flex-1 py-3">${w.paso<4 ? 'Continuar' : 'Confirmar pedido 💧'}</button>
+      </div>
     </div>
   `;
 
-  document.getElementById('btn-salir').addEventListener('click', () => {
-    if (!confirm('¿Cerrar sesión? La próxima vez tendrás que ingresar Torre, Depto y Clave de nuevo.')) return;
-    safeStorage.removeItem(LS_KEY);
-    safeStorage.removeItem(NOMBRE_KEY);
-    renderLogin();
+  if (w.paso===1){
+    document.querySelectorAll('.btn-tipo').forEach(b => b.addEventListener('click', ()=>{ w.tipo = b.getAttribute('data-tipo'); pintarPasoPedido(cliente); }));
+    document.getElementById('btn-menos').addEventListener('click', ()=>{ w.cantidad = Math.max(1, w.cantidad-1); pintarPasoPedido(cliente); });
+    document.getElementById('btn-mas').addEventListener('click', ()=>{ w.cantidad = Math.min(20, w.cantidad+1); pintarPasoPedido(cliente); });
+  }
+  if (w.paso===3){
+    document.querySelectorAll('.btn-horario').forEach(b => b.addEventListener('click', ()=>{ w.horario = b.getAttribute('data-horario'); pintarPasoPedido(cliente); }));
+  }
+  if (w.paso>1) document.getElementById('btn-atras').addEventListener('click', ()=>{ guardarPasoActual(); w.paso--; pintarPasoPedido(cliente); });
+  document.getElementById('btn-siguiente').addEventListener('click', async ()=>{
+    guardarPasoActual();
+    if (w.paso < 4) { w.paso++; pintarPasoPedido(cliente); }
+    else { await confirmarPedido(cliente); }
   });
 
-  document.getElementById('btn-pedir').addEventListener('click', () => handleNuevoPedido(cliente));
-}
-
-function estadoColor(estado) {
-  if (estado === 'pagado') return 'bg-green-100 text-green-700';
-  if (estado === 'entregado') return 'bg-blue-100 text-blue-700';
-  return 'bg-amber-100 text-amber-700';
-}
-function estadoLabel(estado) {
-  if (estado === 'pagado') return 'Pagado ✅';
-  if (estado === 'entregado') return 'Entregado 🚚';
-  return 'Pendiente ⏳';
-}
-
-async function handleNuevoPedido(cliente) {
-  const cantidad = parseInt(document.getElementById('ped-cantidad').value, 10) || 1;
-  const tipo = document.getElementById('ped-tipo').value;
-  const pago = document.getElementById('ped-pago').value;
-  const msgEl = document.getElementById('pedido-msg');
-
-  try {
-    const miNombre = safeStorage.getItem(NOMBRE_KEY) || cliente.nombre;
-    const { error: errPedido } = await supabaseClient.from('pedidos').insert({
-      cliente_id: cliente.id,
-      cantidad,
-      tipo_bidon: tipo,
-      metodo_pago: pago,
-      estado: 'pendiente',
-      nombre_solicitante: miNombre
-    });
-
-    if (errPedido) throw errPedido;
-
-    // Actualizar puntos y total de bidones del cliente
-    const nuevoTotal = cliente.bidones_totales + cantidad;
-    const { error: errUpdate } = await supabaseClient.from('clientes').update({
-      bidones_totales: nuevoTotal,
-      puntos: nuevoTotal
-    }).eq('id', cliente.id);
-    if (errUpdate) throw errUpdate;
-
-    const { data: clienteActualizado } = await supabaseClient.from('clientes').select('*').eq('id', cliente.id).single();
-    renderDashboardCliente(clienteActualizado || { ...cliente, bidones_totales: nuevoTotal, puntos: nuevoTotal });
-  } catch (err) {
-    console.error('Error al crear pedido:', err);
-    msgEl.textContent = 'Error: ' + (err.message || JSON.stringify(err));
-    msgEl.className = 'text-sm text-center text-red-500';
-    msgEl.classList.remove('hidden');
+  function guardarPasoActual(){
+    if (w.paso===2){ w.torre = document.getElementById('in-torre-p').value.trim() || w.torre; w.depto = document.getElementById('in-depto-p').value.trim() || w.depto; }
+    if (w.paso===3 && w.horario==='programado'){ const el=document.getElementById('in-fecha-prog'); if (el) w.fecha_programada = el.value; }
+    if (w.paso===4){ w.indicaciones = document.getElementById('in-indicaciones').value.trim(); w.pago = document.getElementById('in-pago').value; }
   }
 }
 
-// ---------------------------------------------------------
-// PANTALLA: Admin
-// ---------------------------------------------------------
-async function renderAdmin() {
-  const { data: pedidos } = await supabaseClient
-    .from('pedidos')
-    .select('*, clientes(nombre, torre, depto)')
-    .order('created_at', { ascending: false })
-    .limit(100);
+async function confirmarPedido(cliente){
+  const w = PEDIDO_WIZ;
+  const btn = document.getElementById('btn-siguiente');
+  btn.disabled = true; btn.textContent = 'Enviando...';
+  try {
+    const precio = PRECIOS_BIDON[w.tipo] || 0;
+    const total = precio * w.cantidad;
+    const miNombre = safeStorage.getItem(NOMBRE_KEY) || cliente.nombre;
+    const { data: pedidoCreado, error: errPedido } = await supabaseClient.from('pedidos').insert({
+      cliente_id: cliente.id,
+      cantidad: w.cantidad,
+      tipo_bidon: w.tipo,
+      metodo_pago: w.pago,
+      estado: 'solicitado',
+      nombre_solicitante: miNombre,
+      horario_tipo: w.horario,
+      fecha_programada: w.horario==='programado' && w.fecha_programada ? w.fecha_programada : null,
+      indicaciones: w.indicaciones || null,
+      precio_unitario: precio,
+      total: total
+    }).select().single();
+    if (errPedido) throw errPedido;
 
-  const { data: clientes } = await supabaseClient
-    .from('clientes')
-    .select('*')
-    .order('bidones_totales', { ascending: false });
+    // Puntos, bidones totales y racha
+    const ganancia = w.cantidad * PUNTOS_POR_BIDON;
+    const nuevoTotalBidones = (cliente.bidones_totales||0) + w.cantidad;
+    let nuevaRacha = cliente.racha_actual || 0;
+    const hoy = hoyStr();
+    if (cliente.ultima_fecha_pedido === hoy) { /* ya cuenta hoy, no cambia */ }
+    else if (cliente.ultima_fecha_pedido === ayerStr()) { nuevaRacha = nuevaRacha + 1; }
+    else { nuevaRacha = 1; }
+    const puntosRacha = (cliente.ultima_fecha_pedido !== hoy) ? PUNTOS_POR_RACHA_DIA : 0;
+    const nuevoPuntos = (cliente.puntos||0) + ganancia + puntosRacha;
 
-  const pendientes = (pedidos || []).filter(p => p.estado !== 'pagado');
+    const nivelAntes = infoNivel(cliente.puntos).actual.nombre;
+    const nivelDespues = infoNivel(nuevoPuntos).actual.nombre;
 
-  const pedidosHtml = pendientes.length > 0 ? pendientes.map(p => `
-    <div class="border rounded-xl p-3 mb-2 flex justify-between items-center">
+    await supabaseClient.from('clientes').update({
+      bidones_totales: nuevoTotalBidones, puntos: nuevoPuntos, racha_actual: nuevaRacha, ultima_fecha_pedido: hoy
+    }).eq('id', cliente.id);
+
+    await crearNotificacion(cliente.id, 'pedido', `📝 Tu pedido #${pedidoCreado.id.toString().slice(0,8).toUpperCase()} fue recibido. ¡Ganaste ${ganancia+puntosRacha} puntos!`);
+    if (nivelAntes !== nivelDespues) await crearNotificacion(cliente.id, 'nivel', `🎉 ¡Subiste de nivel! Ahora eres ${nivelDespues}.`);
+
+    await recargarClienteActual();
+    lanzarConfeti('💧', 16);
+    showToast('¡Pedido recibido! 💧');
+    location.hash = `#/pedido/${pedidoCreado.id}`;
+    router();
+  } catch (err) {
+    console.error('Error al crear pedido:', err);
+    showToast('Error al enviar el pedido: ' + (err.message || JSON.stringify(err)));
+    btn.disabled = false; btn.textContent = 'Confirmar pedido 💧';
+  }
+}
+</script>
+<script>
+/* ============================================================
+   PANTALLA: SEGUIMIENTO DEL PEDIDO
+   ============================================================ */
+async function renderSeguimiento(cliente, pedidoId){
+  app.innerHTML = shellCliente(`${headerSecundario('Seguimiento','#/home')}<div id="seg-content" class="px-0">${skeletonHome()}</div>`, 'home');
+  const { data: pedido, error } = await supabaseClient.from('pedidos').select('*, repartidores(*)').eq('id', pedidoId).single();
+  const cont = document.getElementById('seg-content');
+  if (error || !pedido) { cont.innerHTML = emptyState('❓','No encontramos ese pedido',''); return; }
+  const estado = normalizaEstado(pedido.estado);
+  const pasos = ['solicitado','preparando','en_camino','entregado'];
+  const idxActual = pasos.indexOf(estado);
+
+  const timeline = pasos.map((p, i) => {
+    const labels = { solicitado:'Pedido solicitado', preparando:'Pedido preparado', en_camino:'En camino', entregado:'Entregado' };
+    const hecho = estado==='cancelado' ? false : i <= idxActual;
+    const esActual = i === idxActual && estado!=='cancelado';
+    return `
+      <div class="flex items-center gap-3">
+        <div class="w-6 h-6 rounded-full flex items-center justify-center text-xs ${hecho?'bg-sky-500 text-white':'bg-slate-200 text-slate-400'} ${esActual?'ring-4 ring-sky-100':''}">${hecho?'✓':'○'}</div>
+        <span class="text-sm ${hecho?'text-slate-700 font-semibold':'text-slate-400'}">${labels[p]}</span>
+      </div>
+      ${i<pasos.length-1?'<div class="ml-3 border-l-2 border-slate-200 h-5"></div>':''}
+    `;
+  }).join('');
+
+  let repartidorHtml = '';
+  if (pedido.repartidores) {
+    const r = pedido.repartidores;
+    repartidorHtml = `
+      <div class="card p-4 mb-4 flex items-center gap-3">
+        <div class="w-12 h-12 rounded-full bg-sky-100 flex items-center justify-center text-xl overflow-hidden">${r.foto_url ? `<img src="${r.foto_url}" class="w-full h-full object-cover">` : '🚴'}</div>
+        <div class="flex-1">
+          <p class="font-bold text-slate-700">${r.nombre}</p>
+          <p class="text-xs text-slate-500">⭐ ${(r.calificacion||5).toFixed(1)}</p>
+        </div>
+        ${r.telefono ? `<a href="tel:${r.telefono}" class="w-10 h-10 rounded-full bg-green-100 text-green-700 flex items-center justify-center">📞</a>` : ''}
+      </div>`;
+  }
+
+  cont.innerHTML = `
+    <div class="px-4">
+      <div class="card p-5 mb-4 fade-in">
+        <div class="flex justify-between items-start mb-3">
+          <div>
+            <p class="text-xs text-slate-400">Pedido</p>
+            <p class="font-bold text-slate-800">#${pedido.id.toString().slice(0,8).toUpperCase()}</p>
+          </div>
+          <span class="px-3 py-1.5 rounded-full text-xs font-bold ${estadoColor(pedido.estado)}">${estadoLabel(pedido.estado)}</span>
+        </div>
+        ${estado==='en_camino' && pedido.hora_estimada ? `<div class="bg-sky-50 text-sky-700 text-sm rounded-xl px-4 py-2 mb-3">🚚 Tu pedido llegará aproximadamente en <b>${pedido.hora_estimada}</b>.</div>` : ''}
+        ${estado==='cancelado' ? `<div class="bg-red-50 text-red-600 text-sm rounded-xl px-4 py-2 mb-3">Este pedido fue cancelado.</div>` : `<div class="space-y-1">${timeline}</div>`}
+      </div>
+      ${repartidorHtml}
+      <div class="card p-5 mb-6 fade-in">
+        <h3 class="font-bold text-slate-700 mb-2">Detalle</h3>
+        <div class="space-y-1.5 text-sm text-slate-600">
+          <div class="flex justify-between"><span>Cantidad</span><b>${pedido.cantidad} × Bidón ${pedido.tipo_bidon}</b></div>
+          <div class="flex justify-between"><span>Total</span><b>${clp(pedido.total || (PRECIOS_BIDON[pedido.tipo_bidon]||0)*pedido.cantidad)}</b></div>
+          <div class="flex justify-between"><span>Fecha</span><b>${fechaHora(pedido.created_at)}</b></div>
+          ${pedido.indicaciones ? `<div class="flex justify-between"><span>Indicaciones</span><b>${pedido.indicaciones}</b></div>` : ''}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/* ============================================================
+   PANTALLA: HISTORIAL ("Mis pedidos")
+   ============================================================ */
+let FILTRO_HISTORIAL = 'todos';
+async function renderHistorial(cliente){
+  app.innerHTML = shellCliente(`${headerSecundario('Mis pedidos','#/home')}<div id="hist-content" class="px-4">${skeletonHome()}</div>`, 'historial');
+  const { data: pedidos } = await supabaseClient.from('pedidos').select('*').eq('cliente_id', cliente.id).order('created_at', { ascending:false });
+  pintarHistorial(pedidos || []);
+}
+function pintarHistorial(pedidos){
+  const filtros = [
+    { id:'todos', label:'Todos' },
+    { id:'en_camino', label:'En camino' },
+    { id:'entregado', label:'Completados' },
+    { id:'cancelado', label:'Cancelados' },
+  ];
+  const filtrados = FILTRO_HISTORIAL==='todos' ? pedidos : pedidos.filter(p => normalizaEstado(p.estado) === (FILTRO_HISTORIAL==='en_camino' ? 'en_camino' : FILTRO_HISTORIAL) || (FILTRO_HISTORIAL==='en_camino' && ['preparando','solicitado'].includes(normalizaEstado(p.estado))));
+
+  const lista = filtrados.length>0 ? filtrados.map(p => `
+    <a href="#/pedido/${p.id}" class="card p-4 mb-3 flex justify-between items-center block">
       <div>
-        <div class="font-medium text-slate-700">Torre ${p.clientes?.torre || '?'} Depto ${p.clientes?.depto || '?'} ${p.nombre_solicitante ? '· pidió ' + p.nombre_solicitante : ''}</div>
-        <div class="text-xs text-slate-400">${p.cantidad} bidón(es) ${p.tipo_bidon} · ${p.metodo_pago} · ${new Date(p.created_at).toLocaleString('es-CL')}</div>
+        <p class="font-semibold text-slate-700 text-sm">#${p.id.toString().slice(0,8).toUpperCase()} · ${p.cantidad} bidón(es) ${p.tipo_bidon}</p>
+        <p class="text-xs text-slate-400">${fechaHora(p.created_at)} · ${clp(p.total || (PRECIOS_BIDON[p.tipo_bidon]||0)*p.cantidad)}</p>
       </div>
-      <div class="flex gap-2">
-        ${p.estado === 'pendiente' ? `<button data-id="${p.id}" data-estado="entregado" class="btn-estado text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-lg">Entregado</button>` : ''}
-        <button data-id="${p.id}" data-estado="pagado" class="btn-estado text-xs bg-green-100 text-green-700 px-2 py-1 rounded-lg">Pagado</button>
+      <span class="px-2 py-1 rounded-full text-xs font-semibold ${estadoColor(p.estado)}">${estadoLabel(p.estado)}</span>
+    </a>`).join('') : emptyState('📦','No hay pedidos en esta categoría','Prueba con otro filtro.');
+
+  document.getElementById('hist-content').innerHTML = `
+    <div class="flex gap-2 mb-4 overflow-x-auto pb-1">
+      ${filtros.map(f => `<button data-f="${f.id}" class="btn-filtro whitespace-nowrap px-4 py-2 rounded-full text-sm font-semibold ${FILTRO_HISTORIAL===f.id?'bg-sky-600 text-white':'bg-white text-slate-500 border'}">${f.label}</button>`).join('')}
+    </div>
+    ${lista}
+  `;
+  document.querySelectorAll('.btn-filtro').forEach(b => b.addEventListener('click', ()=>{ FILTRO_HISTORIAL = b.getAttribute('data-f'); pintarHistorial(pedidos); }));
+}
+</script>
+<script>
+/* ============================================================
+   PANTALLA: PUNTOS Y GAMIFICACIÓN
+   ============================================================ */
+async function renderPuntos(cliente){
+  app.innerHTML = shellCliente(`${headerSecundario('Puntos y niveles','#/home')}<div id="pts-content" class="px-4">${skeletonHome()}</div>`, 'puntos');
+  const nivel = infoNivel(cliente.puntos);
+  let recompensas = [];
+  try { const { data } = await supabaseClient.from('recompensas').select('*').eq('activa', true).order('costo_puntos', { ascending:true }); recompensas = data || []; }
+  catch(e){ console.warn('Tabla recompensas no disponible aún.'); }
+
+  const recompensasHtml = recompensas.length>0 ? recompensas.map(r => `
+    <div class="card p-4 mb-3 flex items-center justify-between">
+      <div>
+        <p class="font-bold text-slate-700 text-sm">${iconoRecompensa(r.tipo)} ${r.nombre}</p>
+        <p class="text-xs text-slate-500">${r.descripcion||''}</p>
+        <p class="text-xs text-sky-600 font-semibold mt-1">${r.costo_puntos} pts</p>
+      </div>
+      <button data-id="${r.id}" data-costo="${r.costo_puntos}" class="btn-canjear ${cliente.puntos>=r.costo_puntos ? 'btn-primary' : 'btn-ghost opacity-60'} text-xs px-3 py-2">Canjear</button>
+    </div>`).join('') : emptyState('🎁','Aún no hay recompensas disponibles','Muy pronto podrás canjear tus puntos aquí.');
+
+  document.getElementById('pts-content').innerHTML = `
+    <div class="card p-5 mb-4 text-center fade-in" style="background:linear-gradient(135deg,#0ea5e9,#0369a1)">
+      <div class="flex justify-center mb-1">${gotaMascota(60, cliente.puntos>=4000?'fiesta':'feliz')}</div>
+      <p class="text-white/90 text-sm">Nivel actual</p>
+      <p class="text-2xl font-extrabold text-white">${nivel.actual.emoji} ${nivel.actual.nombre}</p>
+      <div class="progress-track h-3 bg-white/30 mt-3"><div class="h-3 rounded-full bg-white" style="width:${nivel.pct}%"></div></div>
+      <p class="text-xs text-white/90 mt-2">${nivel.puntos} pts ${nivel.siguiente ? '· faltan ' + nivel.faltan + ' pts para ' + nivel.siguiente.nombre : '· ¡nivel máximo!'}</p>
+    </div>
+
+    <div class="card p-5 mb-4 fade-in">
+      <h3 class="font-bold text-slate-700 mb-2">Escala de niveles</h3>
+      <div class="space-y-2">
+        ${NIVELES.map(n => `<div class="flex justify-between text-sm ${n.nombre===nivel.actual.nombre?'font-bold text-sky-700':'text-slate-500'}"><span>${n.emoji} ${n.nombre}</span><span>${n.min}+ pts</span></div>`).join('')}
       </div>
     </div>
-  `).join('') : `<p class="text-slate-400 text-sm text-center py-4">No hay pedidos pendientes 🎉</p>`;
 
-  const clientesHtml = (clientes || []).map(c => `
-    <div class="flex justify-between items-center border-b py-2 text-sm">
-      <span class="text-slate-700">${c.nombre} · Torre ${c.torre} Depto ${c.depto}</span>
-      <span class="font-semibold text-blue-600">${c.bidones_totales} 💧</span>
-    </div>
-  `).join('');
-
-  app.innerHTML = `
-    <div class="fade-in flex justify-between items-center pt-4 mb-4">
-      <h1 class="text-2xl font-bold text-blue-700">Panel Admin 🛠️</h1>
-      <button id="btn-volver" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-500 px-3 py-1.5 rounded-lg">Cerrar sesión 🔒</button>
+    <div class="card p-5 mb-4 fade-in">
+      <h3 class="font-bold text-slate-700 mb-2">Cómo ganar puntos</h3>
+      <ul class="text-sm text-slate-600 space-y-1.5">
+        <li>💧 Hacer un pedido: +${PUNTOS_POR_BIDON} pts por bidón</li>
+        <li>🔥 Mantener tu racha activa: +${PUNTOS_POR_RACHA_DIA} pts extra por día</li>
+        <li>🤝 Recomendar un vecino: +${PUNTOS_POR_REFERIDO_INVITADOR} pts</li>
+        <li>🎉 Participar en promociones y desafíos especiales</li>
+      </ul>
     </div>
 
-    <div class="bg-white rounded-2xl shadow p-5 mb-4 fade-in">
-      <h2 class="font-semibold text-slate-700 mb-3">Pedidos pendientes / en curso</h2>
-      ${pedidosHtml}
-    </div>
-
-    <div class="bg-white rounded-2xl shadow p-5 mb-8 fade-in">
-      <h2 class="font-semibold text-slate-700 mb-2">Clientes del condominio (${(clientes||[]).length})</h2>
-      ${clientesHtml}
+    <div class="mb-6">
+      <h3 class="font-bold text-slate-700 mb-2 px-1">Recompensas</h3>
+      ${recompensasHtml}
     </div>
   `;
 
-  document.getElementById('btn-volver').addEventListener('click', () => {
-    if (!confirm('¿Cerrar sesión de administrador?')) return;
-    safeStorage.removeItem(ADMIN_SESSION_KEY);
-    renderLogin();
+  document.querySelectorAll('.btn-canjear').forEach(b => b.addEventListener('click', async ()=>{
+    const costo = parseInt(b.getAttribute('data-costo'),10);
+    if ((cliente.puntos||0) < costo) { showToast('Aún no tienes suficientes puntos 💧'); return; }
+    if (!confirm(`¿Canjear esta recompensa por ${costo} puntos?`)) return;
+    try {
+      await supabaseClient.from('canjes').insert({ cliente_id: cliente.id, recompensa_id: b.getAttribute('data-id'), estado:'pendiente' });
+      await supabaseClient.from('clientes').update({ puntos: cliente.puntos - costo }).eq('id', cliente.id);
+      await crearNotificacion(cliente.id, 'recompensa', '🎁 ¡Recompensa desbloqueada! Un administrador la validará pronto.');
+      await recargarClienteActual();
+      lanzarConfeti('🎁', 12);
+      showToast('¡Recompensa canjeada! 🎁');
+      renderPuntos(CLIENTE_ACTUAL);
+    } catch(e){ showToast('No se pudo canjear: ' + (e.message||'')); }
+  }));
+}
+function iconoRecompensa(tipo){ const m = { descuento:'🎁', gratis:'💧', cupon:'🎟️', exclusivo:'⭐' }; return m[tipo] || '🎁'; }
+
+/* ============================================================
+   PANTALLA: NOTIFICACIONES
+   ============================================================ */
+async function renderNotificaciones(cliente){
+  app.innerHTML = shellCliente(`${headerSecundario('Notificaciones','#/home')}<div id="notif-content" class="px-4">${skeletonHome()}</div>`, 'notificaciones');
+  let notifs = [];
+  try { const { data } = await supabaseClient.from('notificaciones').select('*').eq('cliente_id', cliente.id).order('created_at', { ascending:false }).limit(50); notifs = data || []; }
+  catch(e){ console.warn('Tabla notificaciones no disponible aún.'); }
+
+  const iconos = { pedido:'💧', nivel:'🎉', racha:'🔥', recompensa:'🎁', referido:'🤝' };
+  const html = notifs.length>0 ? notifs.map(n => `
+    <div class="card p-4 mb-2 flex items-start gap-3 ${!n.leido?'border-l-4 border-sky-500':''}">
+      <span class="text-xl">${iconos[n.tipo]||'🔔'}</span>
+      <div class="flex-1">
+        <p class="text-sm text-slate-700">${n.mensaje}</p>
+        <p class="text-[11px] text-slate-400 mt-0.5">${fechaHora(n.created_at)}</p>
+      </div>
+      ${!n.leido ? `<button data-id="${n.id}" class="btn-leido text-[11px] text-sky-600 font-semibold">Marcar leído</button>` : ''}
+    </div>`).join('') : emptyState('🔔','No tienes notificaciones','Aquí verás avisos de tus pedidos, puntos y recompensas.');
+
+  document.getElementById('notif-content').innerHTML = html;
+  document.querySelectorAll('.btn-leido').forEach(b => b.addEventListener('click', async ()=>{
+    await supabaseClient.from('notificaciones').update({ leido:true }).eq('id', b.getAttribute('data-id'));
+    renderNotificaciones(cliente);
+  }));
+}
+
+/* ============================================================
+   PANTALLA: PERFIL
+   ============================================================ */
+async function renderPerfil(cliente){
+  const opciones = [
+    { icon:'📝', label:'Mis datos', ruta:null, accion:'datos' },
+    { icon:'📍', label:'Dirección', ruta:null, accion:'direccion' },
+    { icon:'💳', label:'Métodos de pago', ruta:null, accion:'pago' },
+    { icon:'🔔', label:'Notificaciones', ruta:'#/notificaciones' },
+    { icon:'⭐', label:'Mis puntos', ruta:'#/puntos' },
+    { icon:'🤝', label:'Invitar vecinos', ruta:'#/referidos' },
+    { icon:'❓', label:'Ayuda', ruta:null, accion:'ayuda' },
+  ];
+  app.innerHTML = shellCliente(`
+    ${headerSecundario('Mi perfil','#/home')}
+    <div class="px-4">
+      <div class="card p-5 mb-4 flex items-center gap-4 fade-in">
+        <div class="w-16 h-16 rounded-full bg-sky-100 flex items-center justify-center text-3xl overflow-hidden">${cliente.avatar_url?`<img src="${cliente.avatar_url}" class="w-full h-full object-cover">`:'💧'}</div>
+        <div>
+          <p class="font-bold text-slate-800">${cliente.nombre} ${cliente.apellido||''}</p>
+          <p class="text-xs text-slate-500">Torre ${cliente.torre} · Depto ${cliente.depto}</p>
+          ${cliente.telefono?`<p class="text-xs text-slate-400">${cliente.telefono}</p>`:''}
+        </div>
+      </div>
+      <div class="card divide-y fade-in mb-4">
+        ${opciones.map(o => `<a href="${o.ruta||'#'}" data-accion="${o.accion||''}" class="op-perfil flex items-center gap-3 px-4 py-3.5 text-sm font-semibold text-slate-700">${o.icon} <span class="flex-1">${o.label}</span> <span class="text-slate-300">›</span></a>`).join('')}
+      </div>
+      <button id="btn-salir" class="w-full btn-ghost py-3 font-semibold text-slate-500 mb-8">Cerrar sesión 🔒</button>
+    </div>
+  `, 'perfil');
+
+  document.querySelectorAll('.op-perfil').forEach(a => a.addEventListener('click', (e)=>{
+    const accion = a.getAttribute('data-accion');
+    if (accion) { e.preventDefault(); showToast('🚧 Esta sección estará disponible próximamente.'); }
+  }));
+  document.getElementById('btn-salir').addEventListener('click', () => {
+    if (!confirm('¿Cerrar sesión? La próxima vez tendrás que ingresar Torre, Depto y Clave de nuevo.')) return;
+    safeStorage.removeItem(LS_KEY); safeStorage.removeItem(NOMBRE_KEY);
+    CLIENTE_ACTUAL = null;
+    location.hash = ''; renderLogin();
   });
-  document.querySelectorAll('.btn-estado').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      const id = e.target.getAttribute('data-id');
-      const estado = e.target.getAttribute('data-estado');
-      await supabaseClient.from('pedidos').update({ estado }).eq('id', id);
-      renderAdmin();
+}
+
+/* ============================================================
+   PANTALLA: REFERIDOS
+   ============================================================ */
+async function renderReferidos(cliente){
+  let codigo = cliente.codigo_referido;
+  if (!codigo) {
+    codigo = uuidCorto();
+    await supabaseClient.from('clientes').update({ codigo_referido: codigo }).eq('id', cliente.id);
+    await recargarClienteActual();
+  }
+  let referidos = [];
+  try { const { data } = await supabaseClient.from('referidos').select('*').eq('cliente_invitador_id', cliente.id); referidos = data || []; }
+  catch(e){ console.warn('Tabla referidos no disponible aún.'); }
+  const totalPuntos = referidos.reduce((a,r)=>a+(r.puntos_otorgados||0),0);
+  const link = `${location.origin}${location.pathname}#/?ref=${codigo}`;
+
+  app.innerHTML = shellCliente(`
+    ${headerSecundario('Invita a tus vecinos','#/home')}
+    <div class="px-4">
+      <div class="card p-6 mb-4 text-center fade-in">
+        <div class="flex justify-center mb-2">${gotaMascota(64,'guiño','wiggle')}</div>
+        <p class="font-bold text-slate-700 mb-1">Invita a un vecino a AguaTorre</p>
+        <p class="text-sm text-slate-500 mb-4">y ambos reciben puntos 🎉</p>
+        <div class="bg-sky-50 rounded-xl py-3 mb-3">
+          <p class="text-xs text-slate-500">Tu código personal</p>
+          <p class="text-2xl font-extrabold tracking-widest text-sky-700">${codigo}</p>
+        </div>
+        <button id="btn-compartir" class="w-full btn-primary py-3">Compartir invitación 📤</button>
+      </div>
+      <div class="grid grid-cols-2 gap-3 mb-6">
+        <div class="card p-4 text-center"><p class="text-xl font-extrabold text-sky-600">${referidos.length}</p><p class="text-xs text-slate-500">Vecinos invitados</p></div>
+        <div class="card p-4 text-center"><p class="text-xl font-extrabold text-sky-600">${totalPuntos}</p><p class="text-xs text-slate-500">Puntos obtenidos</p></div>
+      </div>
+    </div>
+  `, 'referidos');
+
+  document.getElementById('btn-compartir').addEventListener('click', async ()=>{
+    const texto = `💧 Únete a AguaTorre y pide tu agua sin bajar al primer piso. Usa mi código ${codigo}: ${link}`;
+    if (navigator.share) { try { await navigator.share({ title:'AguaTorre', text: texto }); return; } catch(e){} }
+    try { await navigator.clipboard.writeText(texto); showToast('Enlace copiado 📋'); } catch(e){ showToast('Copia manual: ' + texto); }
+  });
+}
+</script>
+<script>
+/* ============================================================
+   PANEL ADMIN — SHELL (sidebar) + ROUTER INTERNO
+   ============================================================ */
+const ADMIN_SECCIONES = [
+  { id:'resumen', label:'Resumen', icon:'📊' },
+  { id:'pedidos', label:'Pedidos', icon:'📦' },
+  { id:'clientes', label:'Clientes', icon:'👥' },
+  { id:'torres', label:'Torres', icon:'🏢' },
+  { id:'inventario', label:'Inventario', icon:'💧' },
+  { id:'entregas', label:'Entregas', icon:'🚚' },
+  { id:'gamificacion', label:'Gamificación', icon:'⭐' },
+  { id:'reportes', label:'Reportes', icon:'📈' },
+  { id:'configuracion', label:'Configuración', icon:'⚙️' },
+];
+
+function shellAdmin(contenidoHtml, activo){
+  return `
+  <div class="md:flex md:min-h-screen">
+    <div class="hidden md:flex md:flex-col md:w-60 md:shrink-0 md:min-h-screen bg-white border-r px-3 py-6 md:sticky md:top-0">
+      <div class="flex items-center gap-2 px-2 mb-6">
+        <span class="text-2xl">💧</span><span class="font-extrabold text-lg text-sky-700">AguaTorre Admin</span>
+      </div>
+      <nav class="space-y-1 flex-1">
+        ${ADMIN_SECCIONES.map(s => `<a href="#/admin/${s.id}" class="sidebar-link ${activo===s.id?'active':''}"><span class="text-lg">${s.icon}</span>${s.label}</a>`).join('')}
+      </nav>
+      <button id="btn-salir-admin" class="sidebar-link text-red-500 hover:bg-red-50">🔒 Cerrar sesión</button>
+    </div>
+    <div class="flex-1 min-w-0">
+      <div class="md:hidden flex items-center justify-between px-4 pt-4 pb-2 bg-white border-b sticky top-0 z-30">
+        <div class="flex items-center gap-2"><span class="text-xl">💧</span><span class="font-bold text-sky-700">Admin</span></div>
+        <button id="btn-salir-admin-m" class="text-xs text-red-500 font-semibold">Cerrar sesión</button>
+      </div>
+      <div class="md:hidden flex gap-2 overflow-x-auto px-4 py-2 bg-white border-b">
+        ${ADMIN_SECCIONES.map(s => `<a href="#/admin/${s.id}" class="whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-semibold ${activo===s.id?'bg-sky-600 text-white':'bg-slate-100 text-slate-500'}">${s.icon} ${s.label}</a>`).join('')}
+      </div>
+      <div class="p-4 md:p-8 max-w-6xl">
+        ${contenidoHtml}
+      </div>
+    </div>
+  </div>`;
+}
+
+function bindSalirAdmin(){
+  ['btn-salir-admin','btn-salir-admin-m'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('click', () => {
+      if (!confirm('¿Cerrar sesión de administrador?')) return;
+      safeStorage.removeItem(ADMIN_SESSION_KEY);
+      location.hash = ''; renderLogin();
     });
   });
 }
 
-// ---------------------------------------------------------
+async function renderAdmin(seccion){
+  app.innerHTML = shellAdmin(`<div id="admin-content">${skeletonHome()}</div>`, seccion);
+  bindSalirAdmin();
+  switch(seccion){
+    case 'resumen': return renderAdminResumen();
+    case 'pedidos': return renderAdminPedidos();
+    case 'clientes': return renderAdminClientes();
+    case 'torres': return renderAdminTorres();
+    case 'inventario': return renderAdminInventario();
+    case 'entregas': return renderAdminEntregas();
+    case 'gamificacion': return renderAdminGamificacion();
+    case 'reportes': return renderAdminReportes();
+    case 'configuracion': return renderAdminConfiguracion();
+    default: return renderAdminResumen();
+  }
+}
+</script>
+<script>
+/* ============================================================
+   ADMIN — RESUMEN
+   ============================================================ */
+async function renderAdminResumen(){
+  const cont = document.getElementById('admin-content');
+  const [{ data: pedidos }, { data: clientes }] = await Promise.all([
+    supabaseClient.from('pedidos').select('*').order('created_at', { ascending:false }).limit(1000),
+    supabaseClient.from('clientes').select('*')
+  ]);
+  const listaPedidos = pedidos || [];
+  const listaClientes = clientes || [];
+  const hoy = hoyStr();
+  const pedidosHoy = listaPedidos.filter(p => (p.created_at||'').slice(0,10) === hoy);
+  const ventasHoy = pedidosHoy.reduce((a,p)=>a+(p.total || (PRECIOS_BIDON[p.tipo_bidon]||0)*p.cantidad),0);
+  const bidonesHoy = pedidosHoy.reduce((a,p)=>a+(p.cantidad||0),0);
+  const pendientes = listaPedidos.filter(p => !['entregado','cancelado'].includes(normalizaEstado(p.estado))).length;
+  const entregadosTotal = listaPedidos.filter(p => normalizaEstado(p.estado)==='entregado').length;
+  const entregasATiempo = entregadosTotal>0 ? Math.round((listaPedidos.filter(p=>normalizaEstado(p.estado)==='entregado' && p.hora_entrega).length / entregadosTotal)*100) : 0;
+  const clientesActivos = listaClientes.filter(c => (c.bidones_totales||0) > 0).length;
+
+  const cards = [
+    { label:'Pedidos de hoy', valor: pedidosHoy.length, icon:'📦' },
+    { label:'Ventas de hoy', valor: clp(ventasHoy), icon:'💰' },
+    { label:'Bidones vendidos hoy', valor: bidonesHoy, icon:'💧' },
+    { label:'Clientes activos', valor: clientesActivos, icon:'👥' },
+    { label:'Pedidos pendientes', valor: pendientes, icon:'⏳' },
+    { label:'Entregas a tiempo', valor: entregasATiempo + '%', icon:'✅' },
+  ];
+
+  cont.innerHTML = `
+    <h1 class="text-2xl font-bold text-slate-800 mb-1 fade-in">Resumen general</h1>
+    <p class="text-slate-500 text-sm mb-6">Datos en tiempo real desde Supabase.</p>
+    <div class="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
+      ${cards.map(c => `<div class="card p-4 fade-in"><div class="text-xl mb-1">${c.icon}</div><p class="text-2xl font-extrabold text-slate-800">${c.valor}</p><p class="text-xs text-slate-500">${c.label}</p></div>`).join('')}
+    </div>
+    <div class="grid md:grid-cols-2 gap-4">
+      <div class="card p-4"><h3 class="font-bold text-slate-700 mb-2 text-sm">Ventas últimos 7 días</h3><canvas id="chart-ventas7"></canvas></div>
+      <div class="card p-4"><h3 class="font-bold text-slate-700 mb-2 text-sm">Pedidos por estado</h3><canvas id="chart-estados"></canvas></div>
+      <div class="card p-4"><h3 class="font-bold text-slate-700 mb-2 text-sm">Pedidos por torre</h3><canvas id="chart-torres"></canvas></div>
+      <div class="card p-4"><h3 class="font-bold text-slate-700 mb-2 text-sm">Clientes activos vs. totales</h3><canvas id="chart-clientes"></canvas></div>
+    </div>
+  `;
+
+  dibujarGraficosResumen(listaPedidos, listaClientes);
+}
+
+function ultimosNDias(n){
+  const arr = [];
+  for (let i=n-1;i>=0;i--){ const d = new Date(); d.setDate(d.getDate()-i); arr.push(d.toISOString().slice(0,10)); }
+  return arr;
+}
+
+function dibujarGraficosResumen(pedidos, clientes){
+  const dias = ultimosNDias(7);
+  const ventasPorDia = dias.map(d => pedidos.filter(p => (p.created_at||'').slice(0,10)===d).reduce((a,p)=>a+(p.total || (PRECIOS_BIDON[p.tipo_bidon]||0)*p.cantidad),0));
+  new Chart(document.getElementById('chart-ventas7'), {
+    type:'line',
+    data:{ labels: dias.map(d=>fechaCorta(d)), datasets:[{ label:'Ventas', data: ventasPorDia, borderColor:'#0284c7', backgroundColor:'rgba(2,132,199,.15)', fill:true, tension:.35 }] },
+    options:{ plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true}} }
+  });
+
+  const estadosCount = ESTADOS_PEDIDO.map(e => pedidos.filter(p => normalizaEstado(p.estado)===e).length);
+  new Chart(document.getElementById('chart-estados'), {
+    type:'doughnut',
+    data:{ labels:['Solicitado','Preparando','En camino','Entregado','Cancelado'], datasets:[{ data: estadosCount, backgroundColor:['#fbbf24','#fb923c','#38bdf8','#22c55e','#ef4444'] }] },
+    options:{ plugins:{legend:{position:'bottom', labels:{boxWidth:10,font:{size:10}}}} }
+  });
+
+  const torres = [...new Set(clientes.map(c=>c.torre))].filter(Boolean);
+  const porTorre = torres.map(t => pedidos.filter(p => (clientes.find(c=>c.id===p.cliente_id)||{}).torre === t).length);
+  new Chart(document.getElementById('chart-torres'), {
+    type:'bar',
+    data:{ labels: torres.map(t=>'Torre '+t), datasets:[{ label:'Pedidos', data: porTorre, backgroundColor:'#0ea5e9', borderRadius:6 }] },
+    options:{ plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true}} }
+  });
+
+  const activos = clientes.filter(c => (c.bidones_totales||0)>0).length;
+  new Chart(document.getElementById('chart-clientes'), {
+    type:'doughnut',
+    data:{ labels:['Activos','Sin compras aún'], datasets:[{ data:[activos, Math.max(0,clientes.length-activos)], backgroundColor:['#0ea5e9','#e2e8f0'] }] },
+    options:{ plugins:{legend:{position:'bottom'}} }
+  });
+}
+</script>
+<script>
+/* ============================================================
+   ADMIN — PEDIDOS
+   ============================================================ */
+async function renderAdminPedidos(){
+  const cont = document.getElementById('admin-content');
+  const { data: pedidos } = await supabaseClient.from('pedidos').select('*, clientes(nombre, apellido, torre, depto)').order('created_at', { ascending:false }).limit(200);
+  const filas = (pedidos||[]).map(p => `
+    <tr class="border-b hover:bg-slate-50">
+      <td class="py-2 px-3 text-xs font-mono">#${p.id.toString().slice(0,8).toUpperCase()}</td>
+      <td class="py-2 px-3 text-sm">${p.clientes ? (p.clientes.nombre+' '+(p.clientes.apellido||'')) : (p.nombre_solicitante||'—')}</td>
+      <td class="py-2 px-3 text-sm">${p.clientes?.torre||'-'}</td>
+      <td class="py-2 px-3 text-sm">${p.clientes?.depto||'-'}</td>
+      <td class="py-2 px-3 text-sm">${p.cantidad} ${p.tipo_bidon}</td>
+      <td class="py-2 px-3 text-sm font-semibold">${clp(p.total || (PRECIOS_BIDON[p.tipo_bidon]||0)*p.cantidad)}</td>
+      <td class="py-2 px-3">
+        <select data-id="${p.id}" class="sel-estado text-xs border rounded-lg px-2 py-1 ${estadoColor(p.estado)}">
+          ${ESTADOS_PEDIDO.map(e => `<option value="${e}" ${normalizaEstado(p.estado)===e?'selected':''}>${estadoLabel(e).replace(/[^\w\sáéíóúñ]/gi,'').trim()}</option>`).join('')}
+        </select>
+      </td>
+      <td class="py-2 px-3 text-xs text-slate-400">${fechaHora(p.created_at)}</td>
+      <td class="py-2 px-3"><button data-id="${p.id}" class="btn-ver-pedido text-xs text-sky-600 font-semibold">Ver</button></td>
+    </tr>`).join('');
+
+  cont.innerHTML = `
+    <h1 class="text-2xl font-bold text-slate-800 mb-1 fade-in">Pedidos</h1>
+    <p class="text-slate-500 text-sm mb-4">${(pedidos||[]).length} pedidos encontrados.</p>
+    <div class="card overflow-x-auto">
+      <table class="w-full text-left">
+        <thead class="bg-slate-50 text-xs text-slate-500 uppercase">
+          <tr><th class="py-2 px-3">Pedido</th><th class="py-2 px-3">Cliente</th><th class="py-2 px-3">Torre</th><th class="py-2 px-3">Depto</th><th class="py-2 px-3">Cantidad</th><th class="py-2 px-3">Total</th><th class="py-2 px-3">Estado</th><th class="py-2 px-3">Hora</th><th class="py-2 px-3">Acciones</th></tr>
+        </thead>
+        <tbody>${filas || `<tr><td colspan="9" class="py-8 text-center text-slate-400">No hay pedidos aún.</td></tr>`}</tbody>
+      </table>
+    </div>
+    <div id="modal-pedido"></div>
+  `;
+
+  document.querySelectorAll('.sel-estado').forEach(sel => sel.addEventListener('change', async (e)=>{
+    const id = sel.getAttribute('data-id');
+    const nuevoEstado = sel.value;
+    const pedido = (pedidos||[]).find(p=>p.id===id);
+    const patch = { estado: nuevoEstado };
+    if (nuevoEstado === 'entregado') patch.hora_entrega = new Date().toISOString();
+    await supabaseClient.from('pedidos').update(patch).eq('id', id);
+    if (pedido && pedido.cliente_id) {
+      const mensajes = {
+        preparando: '📦 Tu pedido está siendo preparado.',
+        en_camino: '🚚 ¡Tu pedido está en camino!',
+        entregado: '✅ Tu pedido fue entregado. ¡Gracias por preferir AguaTorre!',
+        cancelado: '❌ Tu pedido fue cancelado. Contáctanos si tienes dudas.'
+      };
+      if (mensajes[nuevoEstado]) await crearNotificacion(pedido.cliente_id, 'pedido', mensajes[nuevoEstado]);
+    }
+    showToast('Estado actualizado ✅');
+    renderAdminPedidos();
+  }));
+
+  document.querySelectorAll('.btn-ver-pedido').forEach(b => b.addEventListener('click', ()=>{
+    const p = (pedidos||[]).find(x=>x.id===b.getAttribute('data-id'));
+    if (!p) return;
+    document.getElementById('modal-pedido').innerHTML = `
+      <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" id="overlay-pedido">
+        <div class="bg-white rounded-2xl p-6 max-w-sm w-full">
+          <h3 class="font-bold text-lg mb-3">Pedido #${p.id.toString().slice(0,8).toUpperCase()}</h3>
+          <div class="text-sm space-y-1.5 text-slate-600">
+            <p><b>Cliente:</b> ${p.clientes?.nombre||p.nombre_solicitante||'—'} ${p.clientes?.apellido||''}</p>
+            <p><b>Torre/Depto:</b> ${p.clientes?.torre||'-'} / ${p.clientes?.depto||'-'}</p>
+            <p><b>Cantidad:</b> ${p.cantidad} × ${p.tipo_bidon}</p>
+            <p><b>Total:</b> ${clp(p.total||0)}</p>
+            <p><b>Pago:</b> ${p.metodo_pago}</p>
+            <p><b>Horario:</b> ${p.horario_tipo||'-'}</p>
+            <p><b>Indicaciones:</b> ${p.indicaciones||'—'}</p>
+            <p><b>Creado:</b> ${fechaHora(p.created_at)}</p>
+          </div>
+          <button id="cerrar-modal-pedido" class="w-full btn-ghost py-2.5 mt-4 font-semibold">Cerrar</button>
+        </div>
+      </div>`;
+    document.getElementById('cerrar-modal-pedido').addEventListener('click', ()=> document.getElementById('modal-pedido').innerHTML='');
+  }));
+}
+
+/* ============================================================
+   ADMIN — CLIENTES
+   ============================================================ */
+async function renderAdminClientes(){
+  const cont = document.getElementById('admin-content');
+  const { data: clientes } = await supabaseClient.from('clientes').select('*').order('puntos', { ascending:false });
+  const { data: pedidos } = await supabaseClient.from('pedidos').select('cliente_id, created_at').order('created_at', { ascending:false });
+
+  const filas = (clientes||[]).map(c => {
+    const pedidosCliente = (pedidos||[]).filter(p=>p.cliente_id===c.id);
+    const ultimaCompra = pedidosCliente[0] ? fechaCorta(pedidosCliente[0].created_at) : '—';
+    const nivel = infoNivel(c.puntos);
+    return `
+    <tr class="border-b hover:bg-slate-50 cursor-pointer btn-ver-cliente" data-id="${c.id}">
+      <td class="py-2 px-3 text-sm font-semibold">${c.nombre} ${c.apellido||''}</td>
+      <td class="py-2 px-3 text-sm">${c.telefono||'—'}</td>
+      <td class="py-2 px-3 text-sm">${c.correo||'—'}</td>
+      <td class="py-2 px-3 text-sm">${c.torre}</td>
+      <td class="py-2 px-3 text-sm">${c.depto}</td>
+      <td class="py-2 px-3 text-sm">${pedidosCliente.length}</td>
+      <td class="py-2 px-3 text-sm">${c.puntos||0}</td>
+      <td class="py-2 px-3 text-xs">${nivel.actual.emoji} ${nivel.actual.nombre}</td>
+      <td class="py-2 px-3 text-xs text-slate-400">${ultimaCompra}</td>
+      <td class="py-2 px-3 text-xs">${(c.bidones_totales||0)>0?'<span class="text-green-600 font-semibold">Activo</span>':'<span class="text-slate-400">Nuevo</span>'}</td>
+    </tr>`;
+  }).join('');
+
+  cont.innerHTML = `
+    <h1 class="text-2xl font-bold text-slate-800 mb-1 fade-in">Clientes</h1>
+    <p class="text-slate-500 text-sm mb-4">${(clientes||[]).length} clientes registrados.</p>
+    <div class="card overflow-x-auto">
+      <table class="w-full text-left">
+        <thead class="bg-slate-50 text-xs text-slate-500 uppercase">
+          <tr><th class="py-2 px-3">Nombre</th><th class="py-2 px-3">Teléfono</th><th class="py-2 px-3">Correo</th><th class="py-2 px-3">Torre</th><th class="py-2 px-3">Depto</th><th class="py-2 px-3">Pedidos</th><th class="py-2 px-3">Puntos</th><th class="py-2 px-3">Nivel</th><th class="py-2 px-3">Última compra</th><th class="py-2 px-3">Estado</th></tr>
+        </thead>
+        <tbody>${filas || `<tr><td colspan="10" class="py-8 text-center text-slate-400">Aún no hay clientes registrados.</td></tr>`}</tbody>
+      </table>
+    </div>
+    <div id="modal-cliente"></div>
+  `;
+
+  document.querySelectorAll('.btn-ver-cliente').forEach(tr => tr.addEventListener('click', ()=>{
+    const c = (clientes||[]).find(x=>x.id===tr.getAttribute('data-id'));
+    if (!c) return;
+    const nivel = infoNivel(c.puntos);
+    document.getElementById('modal-cliente').innerHTML = `
+      <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-2xl p-6 max-w-sm w-full">
+          <h3 class="font-bold text-lg mb-3">${c.nombre} ${c.apellido||''}</h3>
+          <div class="text-sm space-y-1.5 text-slate-600">
+            <p><b>Torre/Depto:</b> ${c.torre} / ${c.depto}</p>
+            <p><b>Teléfono:</b> ${c.telefono||'—'}</p>
+            <p><b>Correo:</b> ${c.correo||'—'}</p>
+            <p><b>Puntos:</b> ${c.puntos||0} · Nivel ${nivel.actual.nombre} ${nivel.actual.emoji}</p>
+            <p><b>Bidones totales:</b> ${c.bidones_totales||0}</p>
+            <p><b>Racha actual:</b> 🔥 ${c.racha_actual||0} días</p>
+            <p><b>Código de referido:</b> ${c.codigo_referido||'—'}</p>
+          </div>
+          <button id="cerrar-modal-cliente" class="w-full btn-ghost py-2.5 mt-4 font-semibold">Cerrar</button>
+        </div>
+      </div>`;
+    document.getElementById('cerrar-modal-cliente').addEventListener('click', ()=> document.getElementById('modal-cliente').innerHTML='');
+  }));
+}
+
+/* ============================================================
+   ADMIN — TORRES
+   ============================================================ */
+async function renderAdminTorres(){
+  const cont = document.getElementById('admin-content');
+  const { data: clientes } = await supabaseClient.from('clientes').select('*');
+  const { data: pedidos } = await supabaseClient.from('pedidos').select('*');
+  const torres = [...new Set((clientes||[]).map(c=>c.torre))].filter(Boolean).sort();
+
+  const filas = torres.map(t => {
+    const deptos = (clientes||[]).filter(c=>c.torre===t);
+    const idsClientes = deptos.map(d=>d.id);
+    const pedidosTorre = (pedidos||[]).filter(p=>idsClientes.includes(p.cliente_id));
+    const ventas = pedidosTorre.reduce((a,p)=>a+(p.total || (PRECIOS_BIDON[p.tipo_bidon]||0)*p.cantidad),0);
+    return `
+    <tr class="border-b hover:bg-slate-50">
+      <td class="py-2 px-3 font-semibold text-sm">Torre ${t}</td>
+      <td class="py-2 px-3 text-sm">${deptos.length}</td>
+      <td class="py-2 px-3 text-sm">${pedidosTorre.length}</td>
+      <td class="py-2 px-3 text-sm font-semibold">${clp(ventas)}</td>
+    </tr>`;
+  }).join('');
+
+  cont.innerHTML = `
+    <h1 class="text-2xl font-bold text-slate-800 mb-1 fade-in">Torres</h1>
+    <p class="text-slate-500 text-sm mb-4">${torres.length} torres con actividad registrada.</p>
+    <div class="card overflow-x-auto">
+      <table class="w-full text-left">
+        <thead class="bg-slate-50 text-xs text-slate-500 uppercase"><tr><th class="py-2 px-3">Torre</th><th class="py-2 px-3">Deptos registrados</th><th class="py-2 px-3">Pedidos</th><th class="py-2 px-3">Ventas totales</th></tr></thead>
+        <tbody>${filas || `<tr><td colspan="4" class="py-8 text-center text-slate-400">Sin datos aún.</td></tr>`}</tbody>
+      </table>
+    </div>
+  `;
+}
+</script>
+<script>
+/* ============================================================
+   ADMIN — INVENTARIO
+   ============================================================ */
+async function renderAdminInventario(){
+  const cont = document.getElementById('admin-content');
+  let inventario = [];
+  try { const { data } = await supabaseClient.from('inventario').select('*').order('tipo_bidon'); inventario = data || []; }
+  catch(e){ console.warn('Tabla inventario no disponible aún.'); }
+
+  const filas = inventario.map(i => `
+    <div class="card p-4 mb-3">
+      <div class="flex justify-between items-center mb-2">
+        <h3 class="font-bold text-slate-700">💧 Bidón ${i.tipo_bidon}</h3>
+        ${(i.disponibles <= (i.stock_minimo||0)) ? `<span class="text-xs bg-red-100 text-red-600 px-2 py-1 rounded-full font-semibold">⚠️ Stock crítico</span>` : ''}
+      </div>
+      <div class="grid grid-cols-4 gap-2 text-center text-sm">
+        <div><p class="font-extrabold text-slate-800">${i.disponibles}</p><p class="text-[11px] text-slate-500">Disponibles</p></div>
+        <div><p class="font-extrabold text-slate-800">${i.vendidos}</p><p class="text-[11px] text-slate-500">Vendidos</p></div>
+        <div><p class="font-extrabold text-slate-800">${i.retornados}</p><p class="text-[11px] text-slate-500">Retornados</p></div>
+        <div><p class="font-extrabold text-slate-800">${i.pendientes_devolucion}</p><p class="text-[11px] text-slate-500">Por devolver</p></div>
+      </div>
+      <div class="flex gap-2 mt-3">
+        <input type="number" data-id="${i.id}" class="in-ajuste-stock w-full border rounded-lg px-2 py-1.5 text-sm" placeholder="Ajustar disponibles">
+        <button data-id="${i.id}" class="btn-ajustar-stock btn-primary px-3 text-sm">Guardar</button>
+      </div>
+    </div>`).join('');
+
+  cont.innerHTML = `
+    <h1 class="text-2xl font-bold text-slate-800 mb-1 fade-in">Inventario</h1>
+    <p class="text-slate-500 text-sm mb-4">Control de bidones disponibles, vendidos y en devolución.</p>
+    ${inventario.length>0 ? filas : `
+      <div class="card p-6 text-center">
+        <p class="font-semibold text-slate-600 mb-1">Aún no has configurado tu inventario</p>
+        <p class="text-sm text-slate-400 mb-4">Crea el registro inicial para empezar a controlar el stock.</p>
+        <div class="grid grid-cols-2 gap-3 max-w-sm mx-auto text-left">
+          <div>
+            <label class="text-xs font-semibold text-slate-500">Tipo</label>
+            <select id="nuevo-inv-tipo" class="w-full border rounded-lg px-2 py-2 text-sm"><option value="20L">Bidón 20L</option><option value="12L">Bidón 12L</option></select>
+          </div>
+          <div>
+            <label class="text-xs font-semibold text-slate-500">Disponibles</label>
+            <input id="nuevo-inv-disp" type="number" value="50" class="w-full border rounded-lg px-2 py-2 text-sm">
+          </div>
+        </div>
+        <button id="btn-crear-inv" class="btn-primary px-6 py-2.5 mt-4">Crear registro</button>
+      </div>`}
+  `;
+
+  if (inventario.length===0) {
+    const btn = document.getElementById('btn-crear-inv');
+    if (btn) btn.addEventListener('click', async ()=>{
+      const tipo = document.getElementById('nuevo-inv-tipo').value;
+      const disp = parseInt(document.getElementById('nuevo-inv-disp').value,10)||0;
+      try { await supabaseClient.from('inventario').insert({ tipo_bidon:tipo, disponibles:disp, vendidos:0, retornados:0, pendientes_devolucion:0, stock_minimo:10 }); showToast('Inventario creado ✅'); renderAdminInventario(); }
+      catch(e){ showToast('No se pudo crear (¿falta la tabla inventario?): ' + (e.message||'')); }
+    });
+  }
+  document.querySelectorAll('.btn-ajustar-stock').forEach(b => b.addEventListener('click', async ()=>{
+    const id = b.getAttribute('data-id');
+    const input = document.querySelector(`.in-ajuste-stock[data-id="${id}"]`);
+    const valor = parseInt(input.value,10);
+    if (isNaN(valor)) { showToast('Ingresa un número válido'); return; }
+    await supabaseClient.from('inventario').update({ disponibles: valor }).eq('id', id);
+    showToast('Stock actualizado ✅');
+    renderAdminInventario();
+  }));
+}
+
+/* ============================================================
+   ADMIN — ENTREGAS
+   ============================================================ */
+async function renderAdminEntregas(){
+  const cont = document.getElementById('admin-content');
+  const { data: pedidos } = await supabaseClient.from('pedidos').select('*, clientes(nombre, torre, depto)').in('estado', ['solicitado','preparando','en_camino','pendiente']).order('created_at', { ascending:false });
+  let repartidores = [];
+  try { const { data } = await supabaseClient.from('repartidores').select('*'); repartidores = data || []; }
+  catch(e){ console.warn('Tabla repartidores no disponible aún.'); }
+
+  const filas = (pedidos||[]).map(p => `
+    <tr class="border-b hover:bg-slate-50">
+      <td class="py-2 px-3 text-xs font-mono">#${p.id.toString().slice(0,8).toUpperCase()}</td>
+      <td class="py-2 px-3 text-sm">${p.clientes?.nombre||p.nombre_solicitante||'—'}</td>
+      <td class="py-2 px-3 text-sm">${p.clientes?.torre||'-'}</td>
+      <td class="py-2 px-3 text-sm">${p.clientes?.depto||'-'}</td>
+      <td class="py-2 px-3">
+        <select data-id="${p.id}" class="sel-repartidor text-xs border rounded-lg px-2 py-1">
+          <option value="">Sin asignar</option>
+          ${repartidores.map(r => `<option value="${r.id}" ${p.repartidor_id===r.id?'selected':''}>${r.nombre}</option>`).join('')}
+        </select>
+      </td>
+      <td class="py-2 px-3 text-xs"><span class="px-2 py-1 rounded-full ${estadoColor(p.estado)}">${estadoLabel(p.estado)}</span></td>
+      <td class="py-2 px-3"><input data-id="${p.id}" class="in-hora-estimada text-xs border rounded-lg px-2 py-1 w-28" placeholder="15-20 min" value="${p.hora_estimada||''}"></td>
+      <td class="py-2 px-3 text-xs text-slate-400">${p.hora_entrega ? fechaHora(p.hora_entrega) : '—'}</td>
+    </tr>`).join('');
+
+  cont.innerHTML = `
+    <h1 class="text-2xl font-bold text-slate-800 mb-1 fade-in">Entregas</h1>
+    <p class="text-slate-500 text-sm mb-4">Pedidos activos y asignación de repartidores.</p>
+    ${repartidores.length===0 ? `
+      <div class="card p-4 mb-4">
+        <p class="text-sm font-semibold text-slate-600 mb-2">Aún no has agregado repartidores</p>
+        <div class="flex gap-2">
+          <input id="in-rep-nombre" placeholder="Nombre" class="border rounded-lg px-2 py-1.5 text-sm flex-1">
+          <input id="in-rep-telefono" placeholder="Teléfono" class="border rounded-lg px-2 py-1.5 text-sm w-32">
+          <button id="btn-crear-rep" class="btn-primary px-3 text-sm">Agregar</button>
+        </div>
+      </div>` : ''}
+    <div class="card overflow-x-auto">
+      <table class="w-full text-left">
+        <thead class="bg-slate-50 text-xs text-slate-500 uppercase"><tr><th class="py-2 px-3">Pedido</th><th class="py-2 px-3">Cliente</th><th class="py-2 px-3">Torre</th><th class="py-2 px-3">Depto</th><th class="py-2 px-3">Repartidor</th><th class="py-2 px-3">Estado</th><th class="py-2 px-3">Hora estimada</th><th class="py-2 px-3">Hora entrega</th></tr></thead>
+        <tbody>${filas || `<tr><td colspan="8" class="py-8 text-center text-slate-400">No hay entregas activas.</td></tr>`}</tbody>
+      </table>
+    </div>
+  `;
+
+  const btnRep = document.getElementById('btn-crear-rep');
+  if (btnRep) btnRep.addEventListener('click', async ()=>{
+    const nombre = document.getElementById('in-rep-nombre').value.trim();
+    const telefono = document.getElementById('in-rep-telefono').value.trim();
+    if (!nombre) { showToast('Ingresa un nombre'); return; }
+    try { await supabaseClient.from('repartidores').insert({ nombre, telefono, calificacion:5.0 }); showToast('Repartidor agregado ✅'); renderAdminEntregas(); }
+    catch(e){ showToast('No se pudo agregar (¿falta la tabla repartidores?): ' + (e.message||'')); }
+  });
+  document.querySelectorAll('.sel-repartidor').forEach(sel => sel.addEventListener('change', async ()=>{
+    await supabaseClient.from('pedidos').update({ repartidor_id: sel.value || null }).eq('id', sel.getAttribute('data-id'));
+    showToast('Repartidor asignado 🚚');
+  }));
+  document.querySelectorAll('.in-hora-estimada').forEach(inp => inp.addEventListener('change', async ()=>{
+    await supabaseClient.from('pedidos').update({ hora_estimada: inp.value }).eq('id', inp.getAttribute('data-id'));
+    showToast('Hora estimada guardada ⏱️');
+  }));
+}
+</script>
+<script>
+/* ============================================================
+   ADMIN — GAMIFICACIÓN
+   ============================================================ */
+async function renderAdminGamificacion(){
+  const cont = document.getElementById('admin-content');
+  let recompensas = [], canjes = [], referidos = [];
+  try { const { data } = await supabaseClient.from('recompensas').select('*').order('costo_puntos'); recompensas = data || []; } catch(e){}
+  try { const { data } = await supabaseClient.from('canjes').select('*, clientes(nombre), recompensas(nombre)').order('created_at', { ascending:false }).limit(50); canjes = data || []; } catch(e){}
+  try { const { data } = await supabaseClient.from('referidos').select('*'); referidos = data || []; } catch(e){}
+
+  const filasRecompensas = recompensas.map(r => `
+    <tr class="border-b hover:bg-slate-50">
+      <td class="py-2 px-3 text-sm font-semibold">${iconoRecompensa(r.tipo)} ${r.nombre}</td>
+      <td class="py-2 px-3 text-xs text-slate-500">${r.descripcion||'—'}</td>
+      <td class="py-2 px-3 text-sm">${r.costo_puntos} pts</td>
+      <td class="py-2 px-3"><button data-id="${r.id}" data-activa="${r.activa}" class="btn-toggle-recompensa text-xs px-2 py-1 rounded-full font-semibold ${r.activa?'bg-green-100 text-green-700':'bg-slate-100 text-slate-500'}">${r.activa?'Activa':'Inactiva'}</button></td>
+    </tr>`).join('');
+
+  const filasCanjes = canjes.map(c => `
+    <tr class="border-b hover:bg-slate-50">
+      <td class="py-2 px-3 text-sm">${c.clientes?.nombre||'—'}</td>
+      <td class="py-2 px-3 text-sm">${c.recompensas?.nombre||'—'}</td>
+      <td class="py-2 px-3 text-xs"><span class="px-2 py-1 rounded-full bg-amber-100 text-amber-700">${c.estado}</span></td>
+      <td class="py-2 px-3"><select data-id="${c.id}" class="sel-canje text-xs border rounded-lg px-2 py-1"><option value="pendiente" ${c.estado==='pendiente'?'selected':''}>Pendiente</option><option value="entregado" ${c.estado==='entregado'?'selected':''}>Entregado</option><option value="cancelado" ${c.estado==='cancelado'?'selected':''}>Cancelado</option></select></td>
+    </tr>`).join('');
+
+  cont.innerHTML = `
+    <h1 class="text-2xl font-bold text-slate-800 mb-1 fade-in">Gamificación</h1>
+    <p class="text-slate-500 text-sm mb-4">Administra recompensas, canjes y el impacto del programa de referidos.</p>
+
+    <div class="card p-4 mb-4">
+      <h3 class="font-bold text-slate-700 mb-3">Crear nueva recompensa</h3>
+      <div class="grid md:grid-cols-4 gap-2">
+        <input id="rec-nombre" placeholder="Nombre (ej: 1 bidón gratis)" class="border rounded-lg px-2 py-2 text-sm md:col-span-2">
+        <select id="rec-tipo" class="border rounded-lg px-2 py-2 text-sm"><option value="gratis">💧 Pedido gratis</option><option value="descuento">🎁 Descuento</option><option value="cupon">🎟️ Cupón</option><option value="exclusivo">⭐ Exclusivo</option></select>
+        <input id="rec-costo" type="number" placeholder="Costo en puntos" class="border rounded-lg px-2 py-2 text-sm">
+      </div>
+      <input id="rec-desc" placeholder="Descripción breve" class="border rounded-lg px-2 py-2 text-sm w-full mt-2">
+      <button id="btn-crear-recompensa" class="btn-primary px-6 py-2 mt-3 text-sm">Crear recompensa</button>
+    </div>
+
+    <h3 class="font-bold text-slate-700 mb-2">Recompensas (${recompensas.length})</h3>
+    <div class="card overflow-x-auto mb-4">
+      <table class="w-full text-left"><thead class="bg-slate-50 text-xs text-slate-500 uppercase"><tr><th class="py-2 px-3">Recompensa</th><th class="py-2 px-3">Descripción</th><th class="py-2 px-3">Costo</th><th class="py-2 px-3">Estado</th></tr></thead>
+      <tbody>${filasRecompensas || `<tr><td colspan="4" class="py-6 text-center text-slate-400">Aún no hay recompensas creadas.</td></tr>`}</tbody></table>
+    </div>
+
+    <h3 class="font-bold text-slate-700 mb-2">Canjes recientes (${canjes.length})</h3>
+    <div class="card overflow-x-auto mb-4">
+      <table class="w-full text-left"><thead class="bg-slate-50 text-xs text-slate-500 uppercase"><tr><th class="py-2 px-3">Cliente</th><th class="py-2 px-3">Recompensa</th><th class="py-2 px-3">Estado</th><th class="py-2 px-3">Actualizar</th></tr></thead>
+      <tbody>${filasCanjes || `<tr><td colspan="4" class="py-6 text-center text-slate-400">Aún no hay canjes.</td></tr>`}</tbody></table>
+    </div>
+
+    <div class="card p-4">
+      <h3 class="font-bold text-slate-700 mb-2">Programa de referidos</h3>
+      <p class="text-sm text-slate-600">Total de invitaciones exitosas: <b>${referidos.length}</b></p>
+      <p class="text-sm text-slate-600">Puntos entregados por referidos: <b>${referidos.reduce((a,r)=>a+(r.puntos_otorgados||0),0)}</b></p>
+    </div>
+  `;
+
+  document.getElementById('btn-crear-recompensa').addEventListener('click', async ()=>{
+    const nombre = document.getElementById('rec-nombre').value.trim();
+    const tipo = document.getElementById('rec-tipo').value;
+    const costo = parseInt(document.getElementById('rec-costo').value,10);
+    const descripcion = document.getElementById('rec-desc').value.trim();
+    if (!nombre || !costo) { showToast('Completa nombre y costo en puntos'); return; }
+    try { await supabaseClient.from('recompensas').insert({ nombre, tipo, costo_puntos:costo, descripcion, activa:true }); showToast('Recompensa creada ✅'); renderAdminGamificacion(); }
+    catch(e){ showToast('No se pudo crear (¿falta la tabla recompensas?): ' + (e.message||'')); }
+  });
+  document.querySelectorAll('.btn-toggle-recompensa').forEach(b => b.addEventListener('click', async ()=>{
+    const activa = b.getAttribute('data-activa') === 'true';
+    await supabaseClient.from('recompensas').update({ activa: !activa }).eq('id', b.getAttribute('data-id'));
+    renderAdminGamificacion();
+  }));
+  document.querySelectorAll('.sel-canje').forEach(sel => sel.addEventListener('change', async ()=>{
+    await supabaseClient.from('canjes').update({ estado: sel.value }).eq('id', sel.getAttribute('data-id'));
+    showToast('Canje actualizado ✅');
+  }));
+}
+
+/* ============================================================
+   ADMIN — REPORTES
+   ============================================================ */
+async function renderAdminReportes(){
+  const cont = document.getElementById('admin-content');
+  const { data: pedidos } = await supabaseClient.from('pedidos').select('*');
+  cont.innerHTML = `
+    <h1 class="text-2xl font-bold text-slate-800 mb-1 fade-in">Reportes</h1>
+    <p class="text-slate-500 text-sm mb-4">Análisis con datos reales de tus pedidos.</p>
+    <div class="grid md:grid-cols-2 gap-4">
+      <div class="card p-4"><h3 class="font-bold text-slate-700 mb-2 text-sm">Productos vendidos</h3><canvas id="chart-productos"></canvas></div>
+      <div class="card p-4"><h3 class="font-bold text-slate-700 mb-2 text-sm">Métodos de pago</h3><canvas id="chart-pagos"></canvas></div>
+    </div>
+  `;
+  const lista = pedidos || [];
+  const tipos = ['20L','12L'];
+  new Chart(document.getElementById('chart-productos'), {
+    type:'bar',
+    data:{ labels: tipos.map(t=>'Bidón '+t), datasets:[{ label:'Cantidad vendida', data: tipos.map(t=>lista.filter(p=>p.tipo_bidon===t).reduce((a,p)=>a+(p.cantidad||0),0)), backgroundColor:'#0ea5e9', borderRadius:6 }] },
+    options:{ plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true}} }
+  });
+  const pagos = ['efectivo','transferencia'];
+  new Chart(document.getElementById('chart-pagos'), {
+    type:'pie',
+    data:{ labels:['Efectivo','Transferencia'], datasets:[{ data: pagos.map(pg=>lista.filter(p=>p.metodo_pago===pg).length), backgroundColor:['#22c55e','#0ea5e9'] }] },
+    options:{ plugins:{legend:{position:'bottom'}} }
+  });
+}
+
+/* ============================================================
+   ADMIN — CONFIGURACIÓN
+   ============================================================ */
+async function renderAdminConfiguracion(){
+  const cont = document.getElementById('admin-content');
+  cont.innerHTML = `
+    <h1 class="text-2xl font-bold text-slate-800 mb-1 fade-in">Configuración</h1>
+    <p class="text-slate-500 text-sm mb-4">Ajustes generales de AguaTorre.</p>
+    <div class="card p-5 mb-4">
+      <h3 class="font-bold text-slate-700 mb-2">Precios</h3>
+      <div class="grid grid-cols-2 gap-3 text-sm text-slate-600">
+        <div class="flex justify-between border rounded-xl px-3 py-2"><span>Bidón 20L</span><b>${clp(PRECIOS_BIDON['20L'])}</b></div>
+        <div class="flex justify-between border rounded-xl px-3 py-2"><span>Bidón 12L</span><b>${clp(PRECIOS_BIDON['12L'])}</b></div>
+      </div>
+      <p class="text-xs text-slate-400 mt-2">Para cambiar precios, edita la constante <code>PRECIOS_BIDON</code> en el código.</p>
+    </div>
+    <div class="card p-5 mb-4">
+      <h3 class="font-bold text-slate-700 mb-2">Seguridad</h3>
+      <p class="text-sm text-slate-600">El acceso a este panel está protegido por PIN. La migración a Supabase Auth con roles y RLS quedó pospuesta según tu decisión anterior — puedes retomarla cuando quieras.</p>
+    </div>
+    <div class="card p-5">
+      <h3 class="font-bold text-slate-700 mb-2">Acerca de</h3>
+      <p class="text-sm text-slate-600">AguaTorre 💧 — El agua de tu torre, ahora mucho más fácil.</p>
+    </div>
+  `;
+}
+</script>
+<script>
 init();
 </script>
 </body>
