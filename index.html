@@ -251,6 +251,50 @@ function gotaMascota(size = 64, mood = 'feliz', extraClass = '') {
   </svg>`;
 }
 
+/* ============================================================
+   MASCOTA "GOTA" — personaje ilustrado en PNG (nuevo)
+   Muestra al personaje de AguaTorre con distintas variantes según
+   el momento del cliente en la app:
+     - 'base'      -> saludo/pulgar arriba (login, bienvenida)
+     - 'pedido'    -> abrazando un bidón (haciendo/en curso un pedido)
+     - 'entregado' -> con capa "ENTREGADO" (pedido ya entregado)
+   Los archivos deben subirse a la carpeta "assets/" del repo, junto
+   a index.html, con estos nombres exactos:
+     assets/mascota-base.png
+     assets/mascota-pedido.png
+     assets/mascota-entregado.png
+   Si el archivo aún no existe (404), cae automáticamente en la gota
+   SVG de respaldo para que la app nunca se vea rota.
+   ============================================================ */
+const MASCOTA_ARCHIVOS = {
+  base: 'assets/mascota-base.png',
+  pedido: 'assets/mascota-pedido.png',
+  entregado: 'assets/mascota-entregado.png',
+  nivel: 'assets/mascota-nivel.png',
+  referidos: 'assets/mascota-referidos.png',
+  recompensa: 'assets/mascota-recompensa.png',
+  vacio: 'assets/mascota-vacio.png',
+  dormida: 'assets/mascota-dormida.png'
+};
+let _mascotaImgContador = 0;
+function mascotaImg(variante = 'base', size = 96, extraClass = ''){
+  const archivo = MASCOTA_ARCHIVOS[variante] || MASCOTA_ARCHIVOS.base;
+  const moodsRespaldoPorVariante = { entregado:'fiesta', pedido:'guiño', nivel:'fiesta', referidos:'guiño', recompensa:'fiesta', vacio:'triste', dormida:'dormida', base:'feliz' };
+  const moodRespaldo = moodsRespaldoPorVariante[variante] || 'feliz';
+  const idUnico = 'mascota-img-' + (_mascotaImgContador++);
+  /* FIX: JSON.stringify() genera un literal de string JS 100% válido
+     (escapa comillas dobles, barras y saltos de línea correctamente),
+     evitando romper el HTML como pasaría con un reemplazo manual de
+     comillas. Se embebe dentro de un atributo onerror con COMILLA
+     SIMPLE para que las comillas dobles del SVG no cierren el
+     atributo antes de tiempo. */
+  const svgRespaldo = gotaMascota(size, moodRespaldo, extraClass);
+  const svgComoLiteralJS = JSON.stringify(svgRespaldo);
+  return `<img id="${idUnico}" src="${archivo}" alt="AguaTorre" width="${size}" height="${size}" class="${extraClass}"
+    style="width:${size}px;height:${size}px;object-fit:contain;display:inline-block;"
+    onerror='this.onerror=null; document.getElementById("${idUnico}").outerHTML = ${svgComoLiteralJS};'>`;
+}
+
 const NIVELES = [
   { min: 0,    nombre: 'Gota Inicial',   emoji:'💧', color:'from-sky-300 to-sky-400' },
   { min: 200,  nombre: 'Gota Activa',    emoji:'💧', color:'from-sky-400 to-cyan-500' },
@@ -324,10 +368,45 @@ function lanzarConfeti(emoji='💧', cantidad=14){
     setTimeout(()=>el.remove(), 3200);
   }
 }
+/* ============================================================
+   MODAL DE CELEBRACIÓN — se muestra al subir de nivel, con la
+   mascota "nivel" (corona + trofeo) y confeti extra.
+   ============================================================ */
+function mostrarModalNivel(nombreNivelNuevo, alCerrar){
+  const idModal = 'modal-nivel-' + Date.now();
+  const div = document.createElement('div');
+  div.id = idModal;
+  div.className = 'fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4';
+  div.innerHTML = `
+    <div class="bg-white rounded-3xl p-6 max-w-xs w-full text-center pop-in">
+      <div class="flex justify-center mb-3">${mascotaImg('nivel', 130)}</div>
+      <p class="text-lg font-extrabold text-sky-700">¡Subiste de nivel! 🎉</p>
+      <p class="text-slate-600 text-sm mt-1">Ahora eres</p>
+      <p class="text-xl font-extrabold text-slate-800 mb-4">${nombreNivelNuevo}</p>
+      <button id="btn-cerrar-${idModal}" class="btn-primary w-full py-3">¡Genial! 💧</button>
+    </div>`;
+  document.body.appendChild(div);
+  lanzarConfeti('🎉', 20);
+  document.getElementById(`btn-cerrar-${idModal}`).addEventListener('click', () => {
+    div.remove();
+    if (alCerrar) alCerrar();
+  });
+}
+
 function emptyState(emoji, titulo, subtitulo){
   return `
   <div class="text-center py-10 fade-in">
     <div class="text-5xl mb-3">${emoji}</div>
+    <p class="font-semibold text-slate-600">${titulo}</p>
+    ${subtitulo ? `<p class="text-sm text-slate-400 mt-1">${subtitulo}</p>` : ''}
+  </div>`;
+}
+/* Variante de emptyState que usa la mascota ilustrada en vez de un
+   emoji, para los estados vacíos más importantes de la app. */
+function emptyStateMascota(variante, titulo, subtitulo){
+  return `
+  <div class="text-center py-8 fade-in">
+    <div class="flex justify-center mb-3">${mascotaImg(variante, 100)}</div>
     <p class="font-semibold text-slate-600">${titulo}</p>
     ${subtitulo ? `<p class="text-sm text-slate-400 mt-1">${subtitulo}</p>` : ''}
   </div>`;
@@ -516,7 +595,7 @@ function renderLogin(){
   const refCode = codigoReferidoDesdeURL();
   app.innerHTML = `
     <div class="fade-in text-center pt-14 pb-2">
-      <div class="flex justify-center mb-2">${gotaMascota(84,'feliz','bounce-slow drop-shadow-agua')}</div>
+      <div class="flex justify-center mb-2">${mascotaImg('base', 96, 'bounce-slow drop-shadow-agua')}</div>
       <h1 class="text-3xl font-extrabold text-sky-700">AguaTorre 💧</h1>
       <p class="text-slate-500 mt-1 mb-6 text-sm px-6">El agua de tu torre, ahora mucho más fácil.</p>
     </div>
@@ -581,7 +660,7 @@ async function handlePaso1(refCode){
 function renderPaso2Clave(clienteExistente, torre, depto){
   app.innerHTML = `
     <div class="fade-in text-center pt-14 pb-2">
-      <div class="flex justify-center mb-2">${gotaMascota(76,'guiño','drop-shadow-agua')}</div>
+      <div class="flex justify-center mb-2">${mascotaImg('base', 88, 'drop-shadow-agua')}</div>
       <h1 class="text-2xl font-extrabold text-sky-700">¡Hola de nuevo! 👋</h1>
       <p class="text-slate-500 mt-1 mb-6 text-sm">Torre ${torre} · Depto ${depto}</p>
     </div>
@@ -640,7 +719,7 @@ async function handleLoginClave(clienteExistente, torre, depto){
 function renderPaso2Registro(torre, depto, refCode, clienteParaReclamar){
   app.innerHTML = `
     <div class="fade-in text-center pt-10 pb-2">
-      <div class="flex justify-center mb-2">${gotaMascota(70,'feliz')}</div>
+      <div class="flex justify-center mb-2">${mascotaImg('base', 80)}</div>
       <h1 class="text-xl font-extrabold text-sky-700">¡Bienvenido a AguaTorre! 💧</h1>
       <p class="text-slate-500 mt-1 mb-4 text-sm">Torre ${torre} · Depto ${depto} — es tu primera vez, completa tus datos.</p>
     </div>
@@ -835,7 +914,7 @@ async function renderHome(cliente){
       <a href="#/perfil" class="card py-3 flex flex-col items-center gap-1 text-xs font-semibold text-slate-600">👤 Perfil</a>
     </div>
 
-    ${ultimoHtml || emptyState('💧','No tienes pedidos todavía','Cuando hagas tu primer pedido aparecerá aquí.')}
+    ${ultimoHtml || emptyStateMascota('vacio','No tienes pedidos todavía','Cuando hagas tu primer pedido aparecerá aquí.')}
   `;
 }
 function skeletonHome(){
@@ -980,6 +1059,7 @@ function pintarPasoPedido(cliente){
   const puedeContinuar = w.paso !== 1 || cantidadItems > 0;
 
   document.getElementById('ped-wrap').innerHTML = `
+    <div class="flex justify-center mb-2">${mascotaImg('pedido', 72)}</div>
     <div class="flex items-center gap-1 mb-4">
       ${[1,2,3,4].map(p => `<div class="h-1.5 flex-1 rounded-full ${p<=w.paso?'bg-sky-500':'bg-slate-200'}"></div>`).join('')}
     </div>
@@ -1105,14 +1185,23 @@ async function confirmarPedido(cliente){
     logSupabaseError('actualizar puntos del cliente', errCliente);
 
     await crearNotificacion(cliente.id, 'pedido', `📝 Tu pedido #${pedidoCreado.id.toString().slice(0,8).toUpperCase()} fue recibido. ¡Ganaste ${gananciaTotal} puntos!`);
-    if (nivelAntes !== nivelDespues) await crearNotificacion(cliente.id, 'nivel', `🎉 ¡Subiste de nivel! Ahora eres ${nivelDespues}.`);
+    const subioDeNivel = nivelAntes !== nivelDespues;
+    if (subioDeNivel) await crearNotificacion(cliente.id, 'nivel', `🎉 ¡Subiste de nivel! Ahora eres ${nivelDespues}.`);
 
     vaciarCarrito();
     await recargarClienteActual();
     lanzarConfeti('💧', 16);
     if (itemsGuardados) showToast('¡Pedido recibido! 💧');
-    location.hash = `#/pedido/${pedidoCreado.id}`;
-    router();
+
+    /* NUEVO: si el cliente subió de nivel con este pedido, se muestra
+       un modal de celebración con la mascota "nivel" (corona+trofeo)
+       antes de continuar al seguimiento, para reforzar el logro. */
+    if (subioDeNivel) {
+      mostrarModalNivel(nivelDespues, () => { location.hash = `#/pedido/${pedidoCreado.id}`; router(); });
+    } else {
+      location.hash = `#/pedido/${pedidoCreado.id}`;
+      router();
+    }
   } catch (err) {
     console.error('Error al crear pedido:', err);
     showToast('Error al enviar el pedido: ' + (err.message || JSON.stringify(err)), 3000, true);
@@ -1168,8 +1257,13 @@ async function renderSeguimiento(cliente, pedidoId){
   /* FIX: mensaje de horario dinámico según el día en que se creó el
      pedido (usa el mismo helper que el wizard de pedido). */
   const horarioMsg = horarioEntregaHoy();
+  /* NUEVO: mascota dinámica según el estado del pedido — con el
+     bidón mientras va en camino, con la capa "ENTREGADO" cuando ya
+     se entregó, para reforzar visualmente cada momento del cliente. */
+  const mascotaVariante = estado === 'entregado' ? 'entregado' : 'pedido';
   cont.innerHTML = `
     <div class="px-4">
+      <div class="flex justify-center mb-3 fade-in">${mascotaImg(mascotaVariante, 110)}</div>
       <div class="card p-5 mb-4 fade-in">
         <div class="flex justify-between items-start mb-3">
           <div>
@@ -1253,7 +1347,7 @@ async function renderPuntos(cliente){
 
   document.getElementById('pts-content').innerHTML = `
     <div class="card p-5 mb-4 text-center fade-in" style="background:linear-gradient(135deg,#0ea5e9,#0369a1)">
-      <div class="flex justify-center mb-1">${gotaMascota(60, puntosTotalesDe(cliente)>=4000?'fiesta':'feliz')}</div>
+      <div class="flex justify-center mb-1">${mascotaImg(puntosTotalesDe(cliente)>=4000?'nivel':'base', 90)}</div>
       <p class="text-white/90 text-sm">Nivel actual</p>
       <p class="text-2xl font-extrabold text-white">${nivel.actual.emoji} ${nivel.actual.nombre}</p>
       <div class="progress-track h-3 bg-white/30 mt-3"><div class="h-3 rounded-full bg-white" style="width:${nivel.pct}%"></div></div>
@@ -1287,7 +1381,10 @@ async function renderPuntos(cliente){
     </div>
 
     <div class="mb-6">
-      <h3 class="font-bold text-slate-700 mb-2 px-1">Recompensas</h3>
+      <div class="flex items-center gap-2 mb-2 px-1">
+        ${mascotaImg('recompensa', 36)}
+        <h3 class="font-bold text-slate-700">Recompensas</h3>
+      </div>
       ${recompensasHtml}
     </div>
 
@@ -1346,7 +1443,7 @@ async function renderNotificaciones(cliente){
         <p class="text-[11px] text-slate-400 mt-0.5">${fechaHora(n.created_at)}</p>
       </div>
       ${!n.leido ? `<button data-id="${n.id}" class="btn-leido text-[11px] text-sky-600 font-semibold">Marcar leído</button>` : ''}
-    </div>`).join('') : emptyState('🔔','No tienes notificaciones','Aquí verás avisos de tus pedidos, puntos y recompensas.');
+    </div>`).join('') : emptyStateMascota('dormida','No tienes notificaciones','Aquí verás avisos de tus pedidos, puntos y recompensas.');
 
   document.getElementById('notif-content').innerHTML = html;
   document.querySelectorAll('.btn-leido').forEach(b => b.addEventListener('click', async ()=>{
@@ -1412,7 +1509,7 @@ async function renderReferidos(cliente){
     ${headerSecundario('Invita a tus vecinos','#/home')}
     <div class="px-4">
       <div class="card p-6 mb-4 text-center fade-in">
-        <div class="flex justify-center mb-2">${gotaMascota(64,'guiño','wiggle')}</div>
+        <div class="flex justify-center mb-2">${mascotaImg('referidos', 100, 'wiggle')}</div>
         <p class="font-bold text-slate-700 mb-1">Invita a un vecino a AguaTorre</p>
         <p class="text-sm text-slate-500 mb-4">y ambos reciben puntos 🎉</p>
         <div class="bg-sky-50 rounded-xl py-3 mb-3">
