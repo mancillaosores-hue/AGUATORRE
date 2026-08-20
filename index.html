@@ -12,20 +12,15 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <style>
   :root{
-    --agua-azul:#0ea5e9;
-    --agua-oscuro:#0c4a6e;
-    --agua-celeste:#e0f2fe;
-    --agua-verde:#22c55e;
-    --agua-naranja:#f59e0b;
-    --agua-rojo:#ef4444;
+    --agua-azul:#0ea5e9; --agua-oscuro:#0c4a6e; --agua-celeste:#e0f2fe;
+    --agua-verde:#22c55e; --agua-naranja:#f59e0b; --agua-rojo:#ef4444;
   }
   *{ -webkit-tap-highlight-color: transparent; }
   html,body{ height:100%; }
   body{
     font-family:'Segoe UI', system-ui, -apple-system, sans-serif;
     background: radial-gradient(1200px 600px at 50% -10%, #e0f2fe 0%, #f0f9ff 45%, #ffffff 100%);
-    color:#0f172a;
-    overscroll-behavior-y: contain;
+    color:#0f172a; overscroll-behavior-y: contain;
   }
   .fade-in{ animation: fadeIn .35s ease-in-out; }
   @keyframes fadeIn{ from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:translateY(0);} }
@@ -37,36 +32,22 @@
   @keyframes wiggle{ 0%,100%{transform:rotate(0deg);} 25%{transform:rotate(-4deg);} 75%{transform:rotate(4deg);} }
   .drop-shadow-agua{ filter: drop-shadow(0 8px 14px rgba(14,165,233,.25)); }
   .card{ background:#fff; border-radius:22px; box-shadow: 0 2px 10px rgba(15,23,42,.06), 0 10px 30px -12px rgba(14,165,233,.18); }
-  .btn-primary{
-    background: linear-gradient(135deg, #0ea5e9, #0284c7);
-    color:#fff; font-weight:700; border-radius:18px; transition: all .15s ease;
-    box-shadow: 0 8px 20px -6px rgba(2,132,199,.55);
-  }
+  .btn-primary{ background: linear-gradient(135deg, #0ea5e9, #0284c7); color:#fff; font-weight:700; border-radius:18px; transition: all .15s ease; box-shadow: 0 8px 20px -6px rgba(2,132,199,.55); }
   .btn-primary:active{ transform: scale(.97); }
   .btn-primary:disabled{ opacity:.5; }
   .btn-ghost{ background:#f1f5f9; color:#475569; border-radius:16px; }
   .progress-track{ background:#e2e8f0; border-radius:999px; overflow:hidden; }
   .progress-fill{ background: linear-gradient(90deg,#38bdf8,#0284c7); border-radius:999px; transition: width .6s ease; }
   .safe-bottom{ padding-bottom: env(safe-area-inset-bottom); }
-  .bottom-nav{
-    position:fixed; left:0; right:0; bottom:0; z-index:40;
-    background:rgba(255,255,255,.92); backdrop-filter: blur(10px);
-    border-top:1px solid #e2e8f0;
-  }
+  .bottom-nav{ position:fixed; left:0; right:0; bottom:0; z-index:40; background:rgba(255,255,255,.92); backdrop-filter: blur(10px); border-top:1px solid #e2e8f0; }
   .bottom-nav .nav-item{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; font-size:11px; color:#64748b; padding:6px 0; }
   .bottom-nav .nav-item.active{ color:#0284c7; font-weight:700; }
-  .fab-pedir{
-    position:absolute; left:50%; top:-22px; transform:translateX(-50%);
-    width:56px; height:56px; border-radius:50%;
-    background: linear-gradient(135deg,#0ea5e9,#0369a1);
-    display:flex; align-items:center; justify-content:center;
-    box-shadow: 0 10px 22px -6px rgba(2,132,199,.6);
-    border:4px solid #fff; font-size:22px;
-  }
+  .fab-pedir{ position:absolute; left:50%; top:-22px; transform:translateX(-50%); width:56px; height:56px; border-radius:50%; background: linear-gradient(135deg,#0ea5e9,#0369a1); display:flex; align-items:center; justify-content:center; box-shadow: 0 10px 22px -6px rgba(2,132,199,.6); border:4px solid #fff; font-size:22px; }
   .sidebar-link{ display:flex; align-items:center; gap:10px; padding:10px 14px; border-radius:14px; color:#475569; font-weight:600; font-size:14px; }
   .sidebar-link.active{ background:#e0f2fe; color:#0369a1; }
   .toast-wrap{ position:fixed; top:14px; left:0; right:0; z-index:60; display:flex; flex-direction:column; align-items:center; gap:8px; pointer-events:none; }
-  .toast{ background:#0f172a; color:#fff; padding:10px 18px; border-radius:14px; font-size:13px; font-weight:600; box-shadow:0 10px 24px -8px rgba(0,0,0,.4); }
+  .toast{ background:#0f172a; color:#fff; padding:10px 18px; border-radius:14px; font-size:13px; font-weight:600; box-shadow:0 10px 24px -8px rgba(0,0,0,.4); max-width:90vw; }
+  .toast.toast-error{ background:#7f1d1d; }
   .confetti-emoji{ position:fixed; top:-40px; font-size:20px; animation: fall linear forwards; z-index:70; }
   @keyframes fall{ to{ transform: translateY(110vh) rotate(360deg); opacity:.2; } }
   ::-webkit-scrollbar{ width:8px; height:8px; }
@@ -123,6 +104,19 @@ function fechaHora(iso){ return new Date(iso).toLocaleString('es-CL', { day:'2-d
 function hoyStr(){ return new Date().toISOString().slice(0,10); }
 function ayerStr(){ const d = new Date(); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); }
 function uuidCorto(){ return Math.random().toString(36).slice(2,8).toUpperCase(); }
+
+/* ============================================================
+   MANEJO DE ERRORES DE SUPABASE — IMPORTANTE:
+   supabase-js v2 NO lanza excepciones en errores de consulta,
+   siempre devuelve { data, error }. Este helper centraliza el
+   chequeo para que ningún error quede en silencio otra vez
+   (como pasó con pedido_items antes de este fix).
+   ============================================================ */
+function logSupabaseError(contexto, error){
+  if (!error) return false;
+  console.error(`[AguaTorre] Error en ${contexto}:`, error);
+  return true;
+}
 
 const PRECIOS_BIDON = { '20L': 2000, '12L': 1500 };
 let CATALOGO_PRODUCTOS = [];
@@ -220,34 +214,22 @@ function normalizaEstado(estado){
 }
 function estadoLabel(estadoRaw){
   const estado = normalizaEstado(estadoRaw);
-  const map = {
-    solicitado: 'Solicitado 📝',
-    preparando: 'Preparando 📦',
-    en_camino: 'En camino 🚚',
-    entregado: 'Entregado ✅',
-    cancelado: 'Cancelado ❌'
-  };
+  const map = { solicitado: 'Solicitado 📝', preparando: 'Preparando 📦', en_camino: 'En camino 🚚', entregado: 'Entregado ✅', cancelado: 'Cancelado ❌' };
   return map[estado] || estado;
 }
 function estadoColor(estadoRaw){
   const estado = normalizaEstado(estadoRaw);
-  const map = {
-    solicitado: 'bg-amber-100 text-amber-700',
-    preparando: 'bg-orange-100 text-orange-700',
-    en_camino: 'bg-blue-100 text-blue-700',
-    entregado: 'bg-green-100 text-green-700',
-    cancelado: 'bg-red-100 text-red-700'
-  };
+  const map = { solicitado: 'bg-amber-100 text-amber-700', preparando: 'bg-orange-100 text-orange-700', en_camino: 'bg-blue-100 text-blue-700', entregado: 'bg-green-100 text-green-700', cancelado: 'bg-red-100 text-red-700' };
   return map[estado] || 'bg-slate-100 text-slate-600';
 }
 
-function showToast(msg, ms=2600){
+function showToast(msg, ms=2600, esError=false){
   const wrap = document.getElementById('toast-wrap');
   const el = document.createElement('div');
-  el.className = 'toast pop-in';
+  el.className = 'toast pop-in' + (esError ? ' toast-error' : '');
   el.textContent = msg;
   wrap.appendChild(el);
-  setTimeout(()=>{ el.style.transition='opacity .3s'; el.style.opacity='0'; setTimeout(()=>el.remove(), 300); }, ms);
+  setTimeout(()=>{ el.style.transition='opacity .3s'; el.style.opacity='0'; setTimeout(()=>el.remove(), 300); }, esError ? ms+2000 : ms);
 }
 function lanzarConfeti(emoji='💧', cantidad=14){
   for (let i=0;i<cantidad;i++){
@@ -272,9 +254,7 @@ function emptyState(emoji, titulo, subtitulo){
 </script>
 <script>
 let CLIENTE_ACTUAL = null;
-
 function irA(ruta){ location.hash = ruta; }
-
 window.addEventListener('hashchange', () => router());
 
 async function router(){
@@ -625,9 +605,14 @@ function handleAdminAccess(){
 }
 </script>
 <script>
+/* FIX: ahora se revisa explícitamente el "error" de la respuesta,
+   ya que supabase-js no lanza excepciones por errores de consulta. */
 async function crearNotificacion(clienteId, tipo, mensaje){
-  try { await supabaseClient.from('notificaciones').insert({ cliente_id: clienteId, tipo, mensaje, leido:false }); }
-  catch(e){ console.warn('No se pudo crear notificación (¿existe la tabla notificaciones?):', e); }
+  try {
+    const { error } = await supabaseClient.from('notificaciones').insert({ cliente_id: clienteId, tipo, mensaje, leido:false });
+    if (logSupabaseError('crearNotificacion', error)) return false;
+    return true;
+  } catch(e){ console.warn('No se pudo crear notificación (¿existe la tabla notificaciones?):', e); return false; }
 }
 
 async function renderHome(cliente){
@@ -894,6 +879,15 @@ async function confirmarPedido(cliente){
     }).select().single();
     if (errPedido) throw errPedido;
 
+    /* ============================================================
+       FIX CRÍTICO: antes este bloque usaba try/catch alrededor de
+       .insert(), pero supabase-js NO lanza excepción en errores de
+       consulta (devuelve {data, error}) — por eso pedido_items
+       quedaba vacío en silencio. Ahora se revisa "error" explícita-
+       mente y se avisa con un toast si falla, sin bloquear el pedido
+       (que ya se creó bien en la tabla "pedidos").
+       ============================================================ */
+    let itemsGuardados = false;
     try {
       const filas = carrito.map(it => ({
         pedido_id: pedidoCreado.id,
@@ -903,8 +897,17 @@ async function confirmarPedido(cliente){
         precio_unitario: it.precio,
         subtotal: it.precio * it.cantidad
       }));
-      await supabaseClient.from('pedido_items').insert(filas);
-    } catch(e){ console.warn('No se pudieron guardar los pedido_items (¿falta la tabla?):', e); }
+      const { error: errItems } = await supabaseClient.from('pedido_items').insert(filas);
+      if (errItems) {
+        logSupabaseError('guardar pedido_items', errItems);
+        showToast('⚠️ Pedido creado, pero no se pudo guardar el detalle del carrito (revisa RLS de pedido_items). Detalle: ' + errItems.message, 5000, true);
+      } else {
+        itemsGuardados = true;
+      }
+    } catch(e){
+      console.error('Excepción guardando pedido_items:', e);
+      showToast('⚠️ Pedido creado, pero hubo un error guardando el detalle del carrito.', 5000, true);
+    }
 
     const ganancia = cantidadTotal * PUNTOS_POR_BIDON;
     const nuevoTotalBidones = (cliente.bidones_totales||0) + cantidadTotal;
@@ -919,9 +922,10 @@ async function confirmarPedido(cliente){
     const nivelAntes = infoNivel(cliente.puntos).actual.nombre;
     const nivelDespues = infoNivel(nuevoPuntos).actual.nombre;
 
-    await supabaseClient.from('clientes').update({
+    const { error: errCliente } = await supabaseClient.from('clientes').update({
       bidones_totales: nuevoTotalBidones, puntos: nuevoPuntos, racha_actual: nuevaRacha, ultima_fecha_pedido: hoy
     }).eq('id', cliente.id);
+    logSupabaseError('actualizar puntos del cliente', errCliente);
 
     await crearNotificacion(cliente.id, 'pedido', `📝 Tu pedido #${pedidoCreado.id.toString().slice(0,8).toUpperCase()} fue recibido. ¡Ganaste ${ganancia+puntosRacha} puntos!`);
     if (nivelAntes !== nivelDespues) await crearNotificacion(cliente.id, 'nivel', `🎉 ¡Subiste de nivel! Ahora eres ${nivelDespues}.`);
@@ -929,12 +933,12 @@ async function confirmarPedido(cliente){
     vaciarCarrito();
     await recargarClienteActual();
     lanzarConfeti('💧', 16);
-    showToast('¡Pedido recibido! 💧');
+    if (itemsGuardados) showToast('¡Pedido recibido! 💧');
     location.hash = `#/pedido/${pedidoCreado.id}`;
     router();
   } catch (err) {
     console.error('Error al crear pedido:', err);
-    showToast('Error al enviar el pedido: ' + (err.message || JSON.stringify(err)));
+    showToast('Error al enviar el pedido: ' + (err.message || JSON.stringify(err)), 3000, true);
     btn.disabled = false; btn.textContent = 'Confirmar pedido 💧';
   }
 }
@@ -946,7 +950,7 @@ async function renderSeguimiento(cliente, pedidoId){
   const cont = document.getElementById('seg-content');
   if (error || !pedido) { cont.innerHTML = emptyState('❓','No encontramos ese pedido',''); return; }
   let items = [];
-  try { const { data } = await supabaseClient.from('pedido_items').select('*').eq('pedido_id', pedidoId); items = data || []; }
+  try { const { data, error: errI } = await supabaseClient.from('pedido_items').select('*').eq('pedido_id', pedidoId); logSupabaseError('leer pedido_items', errI); items = data || []; }
   catch(e){ console.warn('Tabla pedido_items no disponible aún.'); }
 
   const estado = normalizaEstado(pedido.estado);
@@ -1099,14 +1103,16 @@ async function renderPuntos(cliente){
     if ((cliente.puntos||0) < costo) { showToast('Aún no tienes suficientes puntos 💧'); return; }
     if (!confirm(`¿Canjear esta recompensa por ${costo} puntos?`)) return;
     try {
-      await supabaseClient.from('canjes').insert({ cliente_id: cliente.id, recompensa_id: b.getAttribute('data-id'), estado:'pendiente' });
-      await supabaseClient.from('clientes').update({ puntos: cliente.puntos - costo }).eq('id', cliente.id);
+      const { error: e1 } = await supabaseClient.from('canjes').insert({ cliente_id: cliente.id, recompensa_id: b.getAttribute('data-id'), estado:'pendiente' });
+      if (logSupabaseError('crear canje', e1)) throw e1;
+      const { error: e2 } = await supabaseClient.from('clientes').update({ puntos: cliente.puntos - costo }).eq('id', cliente.id);
+      logSupabaseError('descontar puntos por canje', e2);
       await crearNotificacion(cliente.id, 'recompensa', '🎁 ¡Recompensa desbloqueada! Un administrador la validará pronto.');
       await recargarClienteActual();
       lanzarConfeti('🎁', 12);
       showToast('¡Recompensa canjeada! 🎁');
       renderPuntos(CLIENTE_ACTUAL);
-    } catch(e){ showToast('No se pudo canjear: ' + (e.message||'')); }
+    } catch(e){ showToast('No se pudo canjear: ' + (e.message||''), 3000, true); }
   }));
 }
 function iconoRecompensa(tipo){ const m = { descuento:'🎁', gratis:'💧', cupon:'🎟️', exclusivo:'⭐' }; return m[tipo] || '🎁'; }
@@ -1114,7 +1120,7 @@ function iconoRecompensa(tipo){ const m = { descuento:'🎁', gratis:'💧', cup
 async function renderNotificaciones(cliente){
   app.innerHTML = shellCliente(`${headerSecundario('Notificaciones','#/home')}<div id="notif-content" class="px-4">${skeletonHome()}</div>`, 'notificaciones');
   let notifs = [];
-  try { const { data } = await supabaseClient.from('notificaciones').select('*').eq('cliente_id', cliente.id).order('created_at', { ascending:false }).limit(50); notifs = data || []; }
+  try { const { data, error } = await supabaseClient.from('notificaciones').select('*').eq('cliente_id', cliente.id).order('created_at', { ascending:false }).limit(50); logSupabaseError('leer notificaciones', error); notifs = data || []; }
   catch(e){ console.warn('Tabla notificaciones no disponible aún.'); }
 
   const iconos = { pedido:'💧', nivel:'🎉', racha:'🔥', recompensa:'🎁', referido:'🤝' };
@@ -1588,11 +1594,12 @@ async function renderAdminProductos(){
     const emoji = document.getElementById('prod-emoji').value.trim() || '💧';
     if (!nombre || !precio) { showToast('Completa al menos nombre y precio'); return; }
     try {
-      await supabaseClient.from('productos').insert({ nombre, categoria, precio, emoji, activo:true });
+      const { error } = await supabaseClient.from('productos').insert({ nombre, categoria, precio, emoji, activo:true });
+      if (logSupabaseError('crear producto', error)) { showToast('No se pudo crear: ' + error.message, 4000, true); return; }
       showToast('Producto agregado ✅');
       await cargarCatalogoProductos(true);
       renderAdminProductos();
-    } catch(e){ showToast('No se pudo crear (¿falta la tabla productos?): ' + (e.message||'')); }
+    } catch(e){ showToast('No se pudo crear (¿falta la tabla productos?): ' + (e.message||''), 4000, true); }
   });
 
   const inputBuscar = document.getElementById('in-buscar-admin-prod');
@@ -1648,7 +1655,8 @@ function pintarTablaProductosAdmin(productos){
     const inputs = document.querySelectorAll(`.in-edit-prod[data-id="${id}"]`);
     const patch = {};
     inputs.forEach(inp => { const campo = inp.getAttribute('data-campo'); patch[campo] = campo==='precio' ? (parseInt(inp.value,10)||0) : inp.value.trim(); });
-    await supabaseClient.from('productos').update(patch).eq('id', id);
+    const { error } = await supabaseClient.from('productos').update(patch).eq('id', id);
+    if (logSupabaseError('actualizar producto', error)) { showToast('Error al guardar: ' + error.message, 4000, true); return; }
     await cargarCatalogoProductos(true);
     showToast('Producto actualizado ✅');
   }));
@@ -1709,8 +1717,8 @@ async function renderAdminInventario(){
     if (btn) btn.addEventListener('click', async ()=>{
       const tipo = document.getElementById('nuevo-inv-tipo').value;
       const disp = parseInt(document.getElementById('nuevo-inv-disp').value,10)||0;
-      try { await supabaseClient.from('inventario').insert({ tipo_bidon:tipo, disponibles:disp, vendidos:0, retornados:0, pendientes_devolucion:0, stock_minimo:10 }); showToast('Inventario creado ✅'); renderAdminInventario(); }
-      catch(e){ showToast('No se pudo crear (¿falta la tabla inventario?): ' + (e.message||'')); }
+      try { const { error } = await supabaseClient.from('inventario').insert({ tipo_bidon:tipo, disponibles:disp, vendidos:0, retornados:0, pendientes_devolucion:0, stock_minimo:10 }); if (logSupabaseError('crear inventario', error)) { showToast('No se pudo crear: '+error.message, 4000, true); return; } showToast('Inventario creado ✅'); renderAdminInventario(); }
+      catch(e){ showToast('No se pudo crear (¿falta la tabla inventario?): ' + (e.message||''), 4000, true); }
     });
   }
   document.querySelectorAll('.btn-ajustar-stock').forEach(b => b.addEventListener('click', async ()=>{
@@ -1773,8 +1781,8 @@ async function renderAdminEntregas(){
     const nombre = document.getElementById('in-rep-nombre').value.trim();
     const telefono = document.getElementById('in-rep-telefono').value.trim();
     if (!nombre) { showToast('Ingresa un nombre'); return; }
-    try { await supabaseClient.from('repartidores').insert({ nombre, telefono, calificacion:5.0 }); showToast('Repartidor agregado ✅'); renderAdminEntregas(); }
-    catch(e){ showToast('No se pudo agregar (¿falta la tabla repartidores?): ' + (e.message||'')); }
+    try { const { error } = await supabaseClient.from('repartidores').insert({ nombre, telefono, calificacion:5.0 }); if (logSupabaseError('crear repartidor', error)) { showToast('No se pudo agregar: '+error.message, 4000, true); return; } showToast('Repartidor agregado ✅'); renderAdminEntregas(); }
+    catch(e){ showToast('No se pudo agregar (¿falta la tabla repartidores?): ' + (e.message||''), 4000, true); }
   });
   document.querySelectorAll('.sel-repartidor').forEach(sel => sel.addEventListener('change', async ()=>{
     await supabaseClient.from('pedidos').update({ repartidor_id: sel.value || null }).eq('id', sel.getAttribute('data-id'));
@@ -1850,8 +1858,8 @@ async function renderAdminGamificacion(){
     const costo = parseInt(document.getElementById('rec-costo').value,10);
     const descripcion = document.getElementById('rec-desc').value.trim();
     if (!nombre || !costo) { showToast('Completa nombre y costo en puntos'); return; }
-    try { await supabaseClient.from('recompensas').insert({ nombre, tipo, costo_puntos:costo, descripcion, activa:true }); showToast('Recompensa creada ✅'); renderAdminGamificacion(); }
-    catch(e){ showToast('No se pudo crear (¿falta la tabla recompensas?): ' + (e.message||'')); }
+    try { const { error } = await supabaseClient.from('recompensas').insert({ nombre, tipo, costo_puntos:costo, descripcion, activa:true }); if (logSupabaseError('crear recompensa', error)) { showToast('No se pudo crear: '+error.message, 4000, true); return; } showToast('Recompensa creada ✅'); renderAdminGamificacion(); }
+    catch(e){ showToast('No se pudo crear (¿falta la tabla recompensas?): ' + (e.message||''), 4000, true); }
   });
   document.querySelectorAll('.btn-toggle-recompensa').forEach(b => b.addEventListener('click', async ()=>{
     const activa = b.getAttribute('data-activa') === 'true';
