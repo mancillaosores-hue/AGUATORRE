@@ -665,6 +665,23 @@ async function crearNotificacion(clienteId, tipo, mensaje){
 
 async function renderHome(cliente){
   app.innerHTML = shellCliente(`<div id="home-content">${skeletonHome()}</div>`, 'home');
+  /* ============================================================
+     FIX: Blindaje contra puntos "desactualizados" en pantalla.
+     Antes, el Home confiaba ciegamente en el objeto "cliente" que le
+     pasaba el router (que podía quedar desactualizado justo después
+     de un registro con referido, por timing/caché). Ahora SIEMPRE
+     se vuelve a consultar Supabase antes de calcular nivel/puntos/
+     racha, garantizando que se muestre el valor real de la base de
+     datos sin depender de qué pasó antes en el flujo de login.
+     ============================================================ */
+  const { data: clienteFresco, error: errFresco } = await supabaseClient
+    .from('clientes').select('*').eq('id', cliente.id).single();
+  if (!errFresco && clienteFresco) {
+    cliente = clienteFresco;
+    CLIENTE_ACTUAL = clienteFresco; // mantiene el estado global sincronizado
+  } else {
+    logSupabaseError('recargar cliente en renderHome', errFresco);
+  }
   const nivel = infoNivel(cliente.puntos);
   const { data: pedidos } = await supabaseClient
     .from('pedidos').select('*').eq('cliente_id', cliente.id).order('created_at', { ascending:false }).limit(30);
