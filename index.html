@@ -595,7 +595,19 @@ async function handleRegistro(torre, depto, refCode, clienteParaReclamar){
       cliente = nuevo;
       esNuevo = true;
     }
-    if (esNuevo && refCode) { await procesarReferido(refCode, cliente).catch(e=>console.warn('Referido no procesado:', e)); }
+    if (esNuevo && refCode) {
+      await procesarReferido(refCode, cliente).catch(e=>console.warn('Referido no procesado:', e));
+      /* FIX: procesarReferido() actualiza los puntos del cliente nuevo
+         directamente en Supabase, pero la variable local "cliente" (usada
+         más abajo para pintar el Home) seguía con el valor viejo (puntos:0)
+         porque se creó ANTES de sumar los puntos del referido. Sin este
+         refetch, el cliente nuevo veía 0 puntos en pantalla aunque la
+         base de datos ya tuviera los 100 puntos correctos guardados. */
+      const { data: clienteActualizado, error: errRefetch } = await supabaseClient
+        .from('clientes').select('*').eq('id', cliente.id).single();
+      if (!errRefetch && clienteActualizado) cliente = clienteActualizado;
+      else logSupabaseError('recargar cliente tras procesar referido', errRefetch);
+    }
     safeStorage.setItem(LS_KEY, cliente.id);
     safeStorage.setItem(NOMBRE_KEY, nombre);
     CLIENTE_ACTUAL = cliente;
@@ -610,13 +622,21 @@ async function handleRegistro(torre, depto, refCode, clienteParaReclamar){
 }
 
 async function procesarReferido(codigo, clienteNuevo){
-  const { data: invitador } = await supabaseClient.from('clientes').select('*').eq('codigo_referido', codigo).limit(1).single();
+  const { data: invitador, error: errBusca } = await supabaseClient.from('clientes').select('*').eq('codigo_referido', codigo).limit(1).single();
+  if (logSupabaseError('buscar invitador por código de referido', errBusca)) return;
   if (!invitador || invitador.id === clienteNuevo.id) return;
-  await supabaseClient.from('referidos').insert({
+
+  const { error: errInsert } = await supabaseClient.from('referidos').insert({
     cliente_invitador_id: invitador.id, cliente_invitado_id: clienteNuevo.id, puntos_otorgados: PUNTOS_POR_REFERIDO_INVITADOR
   });
-  await supabaseClient.from('clientes').update({ puntos: (invitador.puntos||0) + PUNTOS_POR_REFERIDO_INVITADOR }).eq('id', invitador.id);
-  await supabaseClient.from('clientes').update({ puntos: (clienteNuevo.puntos||0) + PUNTOS_POR_REFERIDO_INVITADO }).eq('id', clienteNuevo.id);
+  logSupabaseError('insertar registro de referido', errInsert);
+
+  const { error: errInvitador } = await supabaseClient.from('clientes').update({ puntos: (invitador.puntos||0) + PUNTOS_POR_REFERIDO_INVITADOR }).eq('id', invitador.id);
+  logSupabaseError('sumar puntos al invitador', errInvitador);
+
+  const { error: errInvitado } = await supabaseClient.from('clientes').update({ puntos: (clienteNuevo.puntos||0) + PUNTOS_POR_REFERIDO_INVITADO }).eq('id', clienteNuevo.id);
+  logSupabaseError('sumar puntos al cliente nuevo (invitado)', errInvitado);
+
   await crearNotificacion(invitador.id, 'referido', `🤝 ¡${clienteNuevo.nombre} se unió con tu código! Ganaste ${PUNTOS_POR_REFERIDO_INVITADOR} puntos.`);
   await crearNotificacion(clienteNuevo.id, 'referido', `🎉 ¡Bienvenido! Ganaste ${PUNTOS_POR_REFERIDO_INVITADO} puntos por unirte con una invitación.`);
 }
