@@ -260,21 +260,21 @@ function gotaMascota(size = 64, mood = 'feliz', extraClass = '') {
      - 'entregado' -> con capa "ENTREGADO" (pedido ya entregado)
    Los archivos deben subirse a la carpeta "assets/" del repo, junto
    a index.html, con estos nombres exactos:
-     assets/mascota-base.png
-     assets/mascota-pedido.png
-     assets/mascota-entregado.png
+     imgMascotas/mascota-base.png
+     imgMascotas/mascota-pedido.png
+     imgMascotas/mascota-entregado.png
    Si el archivo aún no existe (404), cae automáticamente en la gota
    SVG de respaldo para que la app nunca se vea rota.
    ============================================================ */
 const MASCOTA_ARCHIVOS = {
-  base: 'assets/mascota-base.png',
-  pedido: 'assets/mascota-pedido.png',
-  entregado: 'assets/mascota-entregado.png',
-  nivel: 'assets/mascota-nivel.png',
-  referidos: 'assets/mascota-referidos.png',
-  recompensa: 'assets/mascota-recompensa.png',
-  vacio: 'assets/mascota-vacio.png',
-  dormida: 'assets/mascota-dormida.png'
+  base: 'imgMascotas/mascota-base.png',
+  pedido: 'imgMascotas/mascota-pedido.png',
+  entregado: 'imgMascotas/mascota-entregado.png',
+  nivel: 'imgMascotas/mascota-nivel.png',
+  referidos: 'imgMascotas/mascota-referidos.png',
+  recompensa: 'imgMascotas/mascota-recompensa.png',
+  vacio: 'imgMascotas/mascota-vacio.png',
+  dormida: 'imgMascotas/mascota-dormida.png'
 };
 let _mascotaImgContador = 0;
 function mascotaImg(variante = 'base', size = 96, extraClass = ''){
