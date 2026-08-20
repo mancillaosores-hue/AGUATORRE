@@ -43,11 +43,11 @@
     box-shadow: 0 8px 20px -6px rgba(2,132,199,.55);
   }
   .btn-primary:active{ transform: scale(.97); }
+  .btn-primary:disabled{ opacity:.5; }
   .btn-ghost{ background:#f1f5f9; color:#475569; border-radius:16px; }
   .progress-track{ background:#e2e8f0; border-radius:999px; overflow:hidden; }
   .progress-fill{ background: linear-gradient(90deg,#38bdf8,#0284c7); border-radius:999px; transition: width .6s ease; }
   .safe-bottom{ padding-bottom: env(safe-area-inset-bottom); }
-  /* Bottom nav (mobile) */
   .bottom-nav{
     position:fixed; left:0; right:0; bottom:0; z-index:40;
     background:rgba(255,255,255,.92); backdrop-filter: blur(10px);
@@ -63,7 +63,6 @@
     box-shadow: 0 10px 22px -6px rgba(2,132,199,.6);
     border:4px solid #fff; font-size:22px;
   }
-  /* Sidebar (desktop) */
   .sidebar-link{ display:flex; align-items:center; gap:10px; padding:10px 14px; border-radius:14px; color:#475569; font-weight:600; font-size:14px; }
   .sidebar-link.active{ background:#e0f2fe; color:#0369a1; }
   .toast-wrap{ position:fixed; top:14px; left:0; right:0; z-index:60; display:flex; flex-direction:column; align-items:center; gap:8px; pointer-events:none; }
@@ -74,6 +73,8 @@
   ::-webkit-scrollbar-thumb{ background:#bae6fd; border-radius:8px; }
   .skeleton{ background: linear-gradient(90deg,#f1f5f9 25%,#e2e8f0 37%,#f1f5f9 63%); background-size:400% 100%; animation: skel 1.4s ease infinite; border-radius:12px; }
   @keyframes skel{ 0%{background-position:100% 50%;} 100%{background-position:0 50%;} }
+  .cart-badge{ position:absolute; top:-6px; right:-6px; background:#ef4444; color:#fff; font-size:10px; font-weight:700; border-radius:999px; min-width:18px; height:18px; display:flex; align-items:center; justify-content:center; padding:0 4px; }
+  .stepper-btn{ width:34px; height:34px; border-radius:999px; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:18px; }
 </style>
 </head>
 <body class="min-h-screen">
@@ -81,14 +82,8 @@
 <div id="app" class="max-w-md mx-auto pb-24 md:max-w-5xl"></div>
 
 <script>
-/* ============================================================
-   AGUATORRE 💧 — CONFIGURACIÓN SUPABASE
-   ============================================================ */
 const SUPABASE_URL = "https://xpitfiunwxvuxqejrdgc.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_ySWTY_Mnf82zbAxegBR1hA_62CX7t9M";
-// PIN simple para entrar al panel de administrador (cámbialo cuando quieras).
-// Nota: la migración a Supabase Auth con roles quedó pospuesta a propósito;
-// este PIN es el mecanismo de protección de /admin mientras tanto.
 const ADMIN_PIN = "2026";
 
 let supabaseClient;
@@ -111,12 +106,10 @@ try {
 const app = document.getElementById('app');
 </script>
 <script>
-/* ============================================================
-   ALMACENAMIENTO SEGURO (localStorage con respaldo en memoria)
-   ============================================================ */
 const LS_KEY = 'aguatorre_cliente_id';
 const NOMBRE_KEY = 'aguatorre_mi_nombre';
 const ADMIN_SESSION_KEY = 'aguatorre_admin_session';
+const CARRITO_KEY = 'aguatorre_carrito';
 const memoryStore = {};
 const safeStorage = {
   getItem(key){ try{ return window.localStorage.getItem(key); } catch(e){ return memoryStore[key] || null; } },
@@ -124,9 +117,6 @@ const safeStorage = {
   removeItem(key){ try{ window.localStorage.removeItem(key); } catch(e){ delete memoryStore[key]; } }
 };
 
-/* ============================================================
-   FORMATEO
-   ============================================================ */
 function clp(n){ return (n||0).toLocaleString('es-CL', { style:'currency', currency:'CLP', maximumFractionDigits:0 }); }
 function fechaCorta(iso){ return new Date(iso).toLocaleDateString('es-CL', { day:'2-digit', month:'short' }); }
 function fechaHora(iso){ return new Date(iso).toLocaleString('es-CL', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }); }
@@ -134,15 +124,47 @@ function hoyStr(){ return new Date().toISOString().slice(0,10); }
 function ayerStr(){ const d = new Date(); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); }
 function uuidCorto(){ return Math.random().toString(36).slice(2,8).toUpperCase(); }
 
-/* ============================================================
-   PRECIOS
-   ============================================================ */
 const PRECIOS_BIDON = { '20L': 2000, '12L': 1500 };
+let CATALOGO_PRODUCTOS = [];
 
-/* ============================================================
-   MASCOTA: gota de agua simpática (SVG inline, sin dependencias)
-   moods: 'feliz' | 'guiño' | 'fiesta' | 'triste' | 'dormida'
-   ============================================================ */
+async function cargarCatalogoProductos(forzar = false){
+  if (CATALOGO_PRODUCTOS.length > 0 && !forzar) return CATALOGO_PRODUCTOS;
+  try {
+    const { data, error } = await supabaseClient.from('productos').select('*').eq('activo', true).order('nombre');
+    if (error) throw error;
+    if (data && data.length > 0) { CATALOGO_PRODUCTOS = data; return CATALOGO_PRODUCTOS; }
+  } catch(e){ console.warn('Tabla "productos" no disponible aún, usando catálogo de respaldo:', e); }
+  CATALOGO_PRODUCTOS = Object.keys(PRECIOS_BIDON).map((tipo) => ({
+    id: 'legado-' + tipo, nombre: 'Bidón ' + tipo, precio: PRECIOS_BIDON[tipo], categoria:'Bidones', emoji:'💧', activo:true, es_legado:true
+  }));
+  return CATALOGO_PRODUCTOS;
+}
+function productoPorId(id){ return CATALOGO_PRODUCTOS.find(p => String(p.id)===String(id)); }
+
+function obtenerCarrito(){
+  try { return JSON.parse(safeStorage.getItem(CARRITO_KEY) || '[]'); } catch(e){ return []; }
+}
+function guardarCarrito(items){ safeStorage.setItem(CARRITO_KEY, JSON.stringify(items)); }
+function vaciarCarrito(){ safeStorage.removeItem(CARRITO_KEY); }
+function totalCarrito(items){ return items.reduce((a,it)=>a + (it.precio * it.cantidad), 0); }
+function cantidadTotalCarrito(items){ return items.reduce((a,it)=>a + it.cantidad, 0); }
+function agregarAlCarrito(producto, delta){
+  const items = obtenerCarrito();
+  const idx = items.findIndex(it => String(it.producto_id)===String(producto.id));
+  if (idx >= 0) {
+    items[idx].cantidad = Math.max(0, items[idx].cantidad + delta);
+    if (items[idx].cantidad === 0) items.splice(idx,1);
+  } else if (delta > 0) {
+    items.push({ producto_id: producto.id, nombre: producto.nombre, precio: producto.precio, emoji: producto.emoji || '💧', cantidad: delta });
+  }
+  guardarCarrito(items);
+  return items;
+}
+function cantidadEnCarrito(productoId){
+  const it = obtenerCarrito().find(x => String(x.producto_id)===String(productoId));
+  return it ? it.cantidad : 0;
+}
+
 function gotaMascota(size = 64, mood = 'feliz', extraClass = '') {
   const caras = {
     feliz:  `<circle cx="26" cy="42" r="3.4" fill="#0c4a6e"/><circle cx="42" cy="42" r="3.4" fill="#0c4a6e"/><path d="M24 50 Q34 58 44 50" stroke="#0c4a6e" stroke-width="3" fill="none" stroke-linecap="round"/>`,
@@ -165,9 +187,6 @@ function gotaMascota(size = 64, mood = 'feliz', extraClass = '') {
   </svg>`;
 }
 
-/* ============================================================
-   SISTEMA DE NIVELES ("Gotas") — basado en puntos acumulados
-   ============================================================ */
 const NIVELES = [
   { min: 0,    nombre: 'Gota Inicial',   emoji:'💧', color:'from-sky-300 to-sky-400' },
   { min: 200,  nombre: 'Gota Activa',    emoji:'💧', color:'from-sky-400 to-cyan-500' },
@@ -192,12 +211,8 @@ const PUNTOS_POR_RACHA_DIA = 20;
 const PUNTOS_POR_REFERIDO_INVITADOR = 200;
 const PUNTOS_POR_REFERIDO_INVITADO = 100;
 
-/* ============================================================
-   ESTADOS DE PEDIDO
-   ============================================================ */
 const ESTADOS_PEDIDO = ['solicitado','preparando','en_camino','entregado','cancelado'];
 function normalizaEstado(estado){
-  // Compatibilidad con datos antiguos (antes de este rediseño)
   if (estado === 'pendiente') return 'solicitado';
   if (estado === 'pagado') return 'entregado';
   if (!estado) return 'solicitado';
@@ -226,9 +241,6 @@ function estadoColor(estadoRaw){
   return map[estado] || 'bg-slate-100 text-slate-600';
 }
 
-/* ============================================================
-   TOASTS Y MICROANIMACIONES
-   ============================================================ */
 function showToast(msg, ms=2600){
   const wrap = document.getElementById('toast-wrap');
   const el = document.createElement('div');
@@ -259,10 +271,7 @@ function emptyState(emoji, titulo, subtitulo){
 }
 </script>
 <script>
-/* ============================================================
-   ROUTER (hash-based) + SESIÓN
-   ============================================================ */
-let CLIENTE_ACTUAL = null; // se carga en init()
+let CLIENTE_ACTUAL = null;
 
 function irA(ruta){ location.hash = ruta; }
 
@@ -272,7 +281,6 @@ async function router(){
   const hash = location.hash.replace(/^#\/?/, '') || '';
   const partes = hash.split('/').filter(Boolean);
 
-  // --- Rutas de administrador (protegidas) ---
   if (partes[0] === 'admin') {
     if (safeStorage.getItem(ADMIN_SESSION_KEY) !== 'true') {
       showToast('🔒 Acceso restringido: inicia sesión como administrador.');
@@ -282,12 +290,10 @@ async function router(){
     return renderAdmin(seccion);
   }
 
-  // --- Si hay sesión de admin activa y no se pidió una ruta de cliente, mostrar admin ---
   if (!hash && safeStorage.getItem(ADMIN_SESSION_KEY) === 'true') {
     return renderAdmin('resumen');
   }
 
-  // --- Rutas de cliente: requieren sesión ---
   const clienteId = safeStorage.getItem(LS_KEY);
   if (!clienteId) { return renderLogin(); }
 
@@ -320,10 +326,8 @@ async function recargarClienteActual(){
   return CLIENTE_ACTUAL;
 }
 
-/* ============================================================
-   SHELL DE CLIENTE: bottom-nav (móvil) + sidebar (escritorio)
-   ============================================================ */
 function shellCliente(contenidoHtml, activo){
+  const carritoCant = cantidadTotalCarrito(obtenerCarrito());
   const items = [
     { id:'home', label:'Inicio', icon:'🏠', ruta:'#/home' },
     { id:'historial', label:'Pedidos', icon:'📦', ruta:'#/historial' },
@@ -336,7 +340,7 @@ function shellCliente(contenidoHtml, activo){
       <div class="relative grid grid-cols-5 max-w-md mx-auto">
         ${items.map(it => it.id === 'pedir' ? `
           <a href="${it.ruta}" class="nav-item relative">
-            <div class="fab-pedir">💧</div>
+            <div class="fab-pedir">💧${carritoCant>0?`<span class="cart-badge">${carritoCant}</span>`:''}</div>
             <span class="mt-8 ${activo===it.id?'text-sky-600 font-bold':''}">${it.label}</span>
           </a>` : `
           <a href="${it.ruta}" class="nav-item ${activo===it.id?'active':''}">
@@ -351,7 +355,10 @@ function shellCliente(contenidoHtml, activo){
         <span class="font-extrabold text-xl text-sky-700">AguaTorre</span>
       </div>
       <nav class="space-y-1">
-        ${items.map(it => `<a href="${it.ruta}" class="sidebar-link ${activo===it.id?'active':''}"><span class="text-lg">${it.icon}</span>${it.label}</a>`).join('')}
+        ${items.map(it => `<a href="${it.ruta}" class="sidebar-link ${activo===it.id?'active':''} relative">
+          <span class="text-lg">${it.icon}</span>${it.label}
+          ${it.id==='pedir' && carritoCant>0 ? `<span class="cart-badge" style="position:static;margin-left:auto;">${carritoCant}</span>` : ''}
+        </a>`).join('')}
         <a href="#/notificaciones" class="sidebar-link ${activo==='notificaciones'?'active':''}"><span class="text-lg">🔔</span>Notificaciones</a>
         <a href="#/referidos" class="sidebar-link ${activo==='referidos'?'active':''}"><span class="text-lg">🤝</span>Invitar vecinos</a>
       </nav>
@@ -375,9 +382,6 @@ function headerSecundario(titulo, rutaVolver='#/home'){
     </div>`;
 }
 
-/* ============================================================
-   INIT
-   ============================================================ */
 async function init(){
   try {
     if (!location.hash) {
@@ -395,9 +399,6 @@ async function init(){
 }
 </script>
 <script>
-/* ============================================================
-   PANTALLA: LOGIN / REGISTRO
-   ============================================================ */
 function codigoReferidoDesdeURL(){
   const m = location.hash.match(/[?&]ref=([A-Z0-9]+)/i);
   return m ? m[1].toUpperCase() : null;
@@ -413,8 +414,125 @@ function renderLogin(){
     </div>
     ${refCode ? `<div class="mx-4 mb-3 bg-amber-50 border border-amber-200 text-amber-700 text-xs rounded-xl px-4 py-2 text-center">🎁 Te invitaron con el código <b>${refCode}</b>: al registrarte ambos ganan puntos.</div>` : ''}
     <div class="card p-6 mx-4 fade-in">
-      <h2 class="font-bold text-lg mb-1 text-slate-700">Ingresa o regístrate</h2>
-      <p class="text-xs text-slate-400 mb-4">Solo pueden registrarse residentes autorizados de la comunidad. Todos los integrantes de un mismo depto comparten historial y puntos con la <b>misma clave</b>.</p>
+      <h2 class="font-bold text-lg mb-1 text-slate-700">Ingresa a tu depto</h2>
+      <p class="text-xs text-slate-400 mb-4">Solo pueden registrarse residentes autorizados de la comunidad.</p>
+      <div class="space-y-3">
+        <div class="flex gap-3">
+          <input id="in-torre" type="text" placeholder="N° Torre" class="w-1/2 border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-sky-400">
+          <input id="in-depto" type="text" placeholder="N° Depto" class="w-1/2 border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-sky-400">
+        </div>
+        <button id="btn-continuar" class="w-full btn-primary py-3">Continuar →</button>
+        <p id="login-error" class="text-red-500 text-sm hidden"></p>
+      </div>
+    </div>
+    <div class="text-center mt-6 pb-6">
+      <button id="btn-admin" class="text-xs text-slate-400 underline">¿Eres administrador?</button>
+    </div>
+  `;
+  document.getElementById('btn-continuar').addEventListener('click', () => handlePaso1(refCode));
+  document.getElementById('in-depto').addEventListener('keydown', (e)=>{ if (e.key==='Enter') handlePaso1(refCode); });
+  document.getElementById('btn-admin').addEventListener('click', handleAdminAccess);
+}
+
+async function handlePaso1(refCode){
+  const torre = document.getElementById('in-torre').value.trim();
+  const depto = document.getElementById('in-depto').value.trim();
+  const errEl = document.getElementById('login-error');
+  const btn = document.getElementById('btn-continuar');
+  errEl.classList.add('hidden');
+  if (!torre || !depto) {
+    errEl.textContent = 'Ingresa Torre y Depto para continuar.';
+    errEl.classList.remove('hidden');
+    return;
+  }
+  const textoOriginal = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Buscando...';
+  try {
+    const { data: existentes, error } = await supabaseClient
+      .from('clientes').select('*').eq('torre', torre).eq('depto', depto).limit(1);
+    if (error) throw error;
+    if (existentes && existentes.length > 0 && existentes[0].clave) {
+      renderPaso2Clave(existentes[0], torre, depto);
+    } else if (existentes && existentes.length > 0 && !existentes[0].clave) {
+      renderPaso2Registro(torre, depto, refCode, existentes[0]);
+    } else {
+      renderPaso2Registro(torre, depto, refCode, null);
+    }
+  } catch (err) {
+    console.error('Error buscando depto:', err);
+    errEl.textContent = 'Error: ' + (err.message || JSON.stringify(err));
+    errEl.classList.remove('hidden');
+    btn.disabled = false; btn.textContent = textoOriginal;
+  }
+}
+
+function renderPaso2Clave(clienteExistente, torre, depto){
+  app.innerHTML = `
+    <div class="fade-in text-center pt-14 pb-2">
+      <div class="flex justify-center mb-2">${gotaMascota(76,'guiño','drop-shadow-agua')}</div>
+      <h1 class="text-2xl font-extrabold text-sky-700">¡Hola de nuevo! 👋</h1>
+      <p class="text-slate-500 mt-1 mb-6 text-sm">Torre ${torre} · Depto ${depto}</p>
+    </div>
+    <div class="card p-6 mx-4 fade-in">
+      <label class="text-sm font-semibold text-slate-600 mb-2 block">¿Quién pide hoy?</label>
+      <input id="in-nombre-hoy" type="text" placeholder="Tu nombre" class="w-full border rounded-xl px-4 py-3 mb-3 focus:outline-none focus:ring-2 focus:ring-sky-400">
+      <input id="in-clave" type="password" placeholder="Clave del depto" class="w-full border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-sky-400">
+      <label class="flex items-center gap-2 text-xs text-slate-500 px-1 mt-3">
+        <input id="in-recordar" type="checkbox" checked class="rounded"> Mantener sesión iniciada en este dispositivo
+      </label>
+      <button id="btn-entrar" class="w-full btn-primary py-3 mt-3">Ingresar 🚪</button>
+      <p id="login-error2" class="text-red-500 text-sm hidden mt-2"></p>
+      <button id="btn-otro-depto" class="w-full text-xs text-slate-400 underline mt-4">No es mi depto, volver</button>
+    </div>
+  `;
+  document.getElementById('btn-entrar').addEventListener('click', () => handleLoginClave(clienteExistente, torre, depto));
+  document.getElementById('in-clave').addEventListener('keydown', (e)=>{ if (e.key==='Enter') handleLoginClave(clienteExistente, torre, depto); });
+  document.getElementById('btn-otro-depto').addEventListener('click', renderLogin);
+}
+
+async function handleLoginClave(clienteExistente, torre, depto){
+  const nombre = document.getElementById('in-nombre-hoy').value.trim();
+  const clave = document.getElementById('in-clave').value.trim();
+  const errEl = document.getElementById('login-error2');
+  const btn = document.getElementById('btn-entrar');
+  errEl.classList.add('hidden');
+  if (!nombre || !clave) {
+    errEl.textContent = 'Ingresa tu nombre y la clave del depto.';
+    errEl.classList.remove('hidden');
+    return;
+  }
+  const textoOriginal = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Ingresando...';
+  try {
+    const { data: actual, error } = await supabaseClient.from('clientes').select('*').eq('id', clienteExistente.id).single();
+    if (error) throw error;
+    if (actual.clave !== clave) {
+      errEl.textContent = `Clave incorrecta para Torre ${torre}, Depto ${depto}. Pregunta a algún familiar, o contacta al administrador.`;
+      errEl.classList.remove('hidden');
+      btn.disabled = false; btn.textContent = textoOriginal;
+      return;
+    }
+    safeStorage.setItem(LS_KEY, actual.id);
+    safeStorage.setItem(NOMBRE_KEY, nombre);
+    CLIENTE_ACTUAL = actual;
+    location.hash = '#/home';
+    router();
+  } catch (err) {
+    console.error('Error en login:', err);
+    errEl.textContent = 'Error: ' + (err.message || JSON.stringify(err));
+    errEl.classList.remove('hidden');
+    btn.disabled = false; btn.textContent = textoOriginal;
+  }
+}
+
+function renderPaso2Registro(torre, depto, refCode, clienteParaReclamar){
+  app.innerHTML = `
+    <div class="fade-in text-center pt-10 pb-2">
+      <div class="flex justify-center mb-2">${gotaMascota(70,'feliz')}</div>
+      <h1 class="text-xl font-extrabold text-sky-700">¡Bienvenido a AguaTorre! 💧</h1>
+      <p class="text-slate-500 mt-1 mb-4 text-sm">Torre ${torre} · Depto ${depto} — es tu primera vez, completa tus datos.</p>
+    </div>
+    <div class="card p-6 mx-4 fade-in">
       <div class="space-y-3">
         <div class="flex gap-3">
           <input id="in-nombre" type="text" placeholder="Nombre" class="w-1/2 border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-sky-400">
@@ -424,64 +542,41 @@ function renderLogin(){
           <input id="in-telefono" type="tel" placeholder="Teléfono" class="w-1/2 border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-sky-400">
           <input id="in-correo" type="email" placeholder="Correo (opcional)" class="w-1/2 border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-sky-400">
         </div>
-        <div class="flex gap-3">
-          <input id="in-torre" type="text" placeholder="N° Torre" class="w-1/2 border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-sky-400">
-          <input id="in-depto" type="text" placeholder="N° Depto" class="w-1/2 border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-sky-400">
-        </div>
-        <input id="in-clave" type="password" placeholder="Clave del depto (la inventas tú la 1ª vez)" class="w-full border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-sky-400">
-        <label class="flex items-center gap-2 text-xs text-slate-500 px-1">
-          <input id="in-recordar" type="checkbox" checked class="rounded"> Mantener sesión iniciada en este dispositivo
-        </label>
-        <button id="btn-entrar" class="w-full btn-primary py-3">Ingresar 🚪</button>
-        <p id="login-error" class="text-red-500 text-sm hidden"></p>
+        <input id="in-clave" type="password" placeholder="Crea una clave para tu depto" class="w-full border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-sky-400">
+        <p class="text-xs text-slate-400 px-1">Todos los integrantes de tu depto usarán esta misma clave para compartir historial y puntos.</p>
+        <button id="btn-registrar" class="w-full btn-primary py-3">Crear cuenta y entrar 🚪</button>
+        <p id="login-error3" class="text-red-500 text-sm hidden"></p>
       </div>
-    </div>
-    <div class="text-center mt-6 pb-6">
-      <button id="btn-admin" class="text-xs text-slate-400 underline">¿Eres administrador?</button>
+      <button id="btn-otro-depto2" class="w-full text-xs text-slate-400 underline mt-4">No es mi depto, volver</button>
     </div>
   `;
-  document.getElementById('btn-entrar').addEventListener('click', () => handleLogin(refCode));
-  document.getElementById('btn-admin').addEventListener('click', handleAdminAccess);
+  document.getElementById('btn-registrar').addEventListener('click', () => handleRegistro(torre, depto, refCode, clienteParaReclamar));
+  document.getElementById('btn-otro-depto2').addEventListener('click', renderLogin);
 }
 
-async function handleLogin(refCode){
+async function handleRegistro(torre, depto, refCode, clienteParaReclamar){
   const nombre = document.getElementById('in-nombre').value.trim();
   const apellido = document.getElementById('in-apellido').value.trim();
   const telefono = document.getElementById('in-telefono').value.trim();
   const correo = document.getElementById('in-correo').value.trim();
-  const torre = document.getElementById('in-torre').value.trim();
-  const depto = document.getElementById('in-depto').value.trim();
   const clave = document.getElementById('in-clave').value.trim();
-  const recordar = document.getElementById('in-recordar').checked;
-  const errEl = document.getElementById('login-error');
-  const btn = document.getElementById('btn-entrar');
+  const errEl = document.getElementById('login-error3');
+  const btn = document.getElementById('btn-registrar');
   errEl.classList.add('hidden');
-  if (!nombre || !torre || !depto || !clave) {
-    errEl.textContent = 'Por favor completa al menos nombre, torre, depto y clave.';
+  if (!nombre || !clave) {
+    errEl.textContent = 'Completa al menos tu nombre y crea una clave.';
     errEl.classList.remove('hidden');
     return;
   }
   const textoOriginal = btn.textContent;
-  btn.disabled = true; btn.textContent = 'Cargando...';
+  btn.disabled = true; btn.textContent = 'Creando cuenta...';
   try {
-    const { data: existentes, error: errBusca } = await supabaseClient
-      .from('clientes').select('*').eq('torre', torre).eq('depto', depto).limit(1);
-    if (errBusca) throw errBusca;
-    let cliente;
-    let esNuevo = false;
-    if (existentes && existentes.length > 0) {
-      cliente = existentes[0];
-      if (!cliente.clave) {
-        const { data: actualizado, error: errClaim } = await supabaseClient
-          .from('clientes').update({ clave, apellido, telefono, correo }).eq('id', cliente.id).select().single();
-        if (errClaim) throw errClaim;
-        cliente = actualizado;
-      } else if (cliente.clave !== clave) {
-        errEl.textContent = `Clave incorrecta para Torre ${torre}, Depto ${depto}. Pregunta a algún familiar por la clave, o contacta al administrador.`;
-        errEl.classList.remove('hidden');
-        btn.disabled = false; btn.textContent = textoOriginal;
-        return;
-      }
+    let cliente; let esNuevo = false;
+    if (clienteParaReclamar) {
+      const { data: actualizado, error: errClaim } = await supabaseClient
+        .from('clientes').update({ clave, apellido, telefono, correo }).eq('id', clienteParaReclamar.id).select().single();
+      if (errClaim) throw errClaim;
+      cliente = actualizado;
     } else {
       const codigo_referido = uuidCorto();
       const { data: nuevo, error: errCrea } = await supabaseClient
@@ -495,12 +590,11 @@ async function handleLogin(refCode){
     if (esNuevo && refCode) { await procesarReferido(refCode, cliente).catch(e=>console.warn('Referido no procesado:', e)); }
     safeStorage.setItem(LS_KEY, cliente.id);
     safeStorage.setItem(NOMBRE_KEY, nombre);
-    if (!recordar) { /* la sesión igual queda en localStorage por límites del entorno, pero se respeta la preferencia visualmente */ }
     CLIENTE_ACTUAL = cliente;
     location.hash = '#/home';
     router();
   } catch (err) {
-    console.error('Error en login:', err);
+    console.error('Error en registro:', err);
     errEl.textContent = 'Error: ' + (err.message || JSON.stringify(err));
     errEl.classList.remove('hidden');
     btn.disabled = false; btn.textContent = textoOriginal;
@@ -531,17 +625,11 @@ function handleAdminAccess(){
 }
 </script>
 <script>
-/* ============================================================
-   NOTIFICACIONES — helper de creación (usado en varios flujos)
-   ============================================================ */
 async function crearNotificacion(clienteId, tipo, mensaje){
   try { await supabaseClient.from('notificaciones').insert({ cliente_id: clienteId, tipo, mensaje, leido:false }); }
   catch(e){ console.warn('No se pudo crear notificación (¿existe la tabla notificaciones?):', e); }
 }
 
-/* ============================================================
-   PANTALLA: HOME DEL CLIENTE
-   ============================================================ */
 async function renderHome(cliente){
   app.innerHTML = shellCliente(`<div id="home-content">${skeletonHome()}</div>`, 'home');
   const nivel = infoNivel(cliente.puntos);
@@ -560,7 +648,7 @@ async function renderHome(cliente){
           <h2 class="font-bold text-slate-700">Tu último pedido</h2>
           <span class="px-2 py-1 rounded-full text-xs font-semibold ${estadoColor(ultimo.estado)}">${estadoLabel(ultimo.estado)}</span>
         </div>
-        <p class="text-sm text-slate-500 mb-3">Pedido #${ultimo.id.toString().slice(0,8).toUpperCase()} · ${ultimo.cantidad} bidón(es) ${ultimo.tipo_bidon}</p>
+        <p class="text-sm text-slate-500 mb-3">Pedido #${ultimo.id.toString().slice(0,8).toUpperCase()} · ${ultimo.total ? clp(ultimo.total) : (ultimo.cantidad + ' bidón(es) ' + ultimo.tipo_bidon)}</p>
         ${estado !== 'entregado' && estado !== 'cancelado' ? `<a href="#/pedido/${ultimo.id}" class="block text-center btn-primary py-2.5">Ver seguimiento 🚚</a>` : `<a href="#/pedido/${ultimo.id}" class="block text-center btn-ghost py-2.5 font-semibold">Ver detalle</a>`}
       </div>`;
   }
@@ -616,46 +704,72 @@ function skeletonHome(){
 }
 </script>
 <script>
-/* ============================================================
-   PANTALLA: CREAR PEDIDO (wizard de 4 pasos)
-   ============================================================ */
-let PEDIDO_WIZ = { paso:1, cantidad:1, tipo:'20L', depto: null, torre: null, horario:'asap', fecha_programada:'', indicaciones:'', pago:'efectivo' };
+let PEDIDO_WIZ = { paso:1, depto: null, torre: null, horario:'asap', fecha_programada:'', indicaciones:'', pago:'efectivo' };
+let BUSQUEDA_PRODUCTOS = '';
 
-function renderNuevoPedido(cliente){
-  PEDIDO_WIZ = { paso:1, cantidad:1, tipo:'20L', torre: cliente.torre, depto: cliente.depto, horario:'asap', fecha_programada:'', indicaciones:'', pago:'efectivo' };
+async function renderNuevoPedido(cliente){
+  PEDIDO_WIZ = { paso:1, torre: cliente.torre, depto: cliente.depto, horario:'asap', fecha_programada:'', indicaciones:'', pago:'efectivo' };
+  BUSQUEDA_PRODUCTOS = '';
+  app.innerHTML = `${headerSecundario('Hacer pedido', '#/home')}<div id="ped-wrap" class="px-4">${skeletonHome()}</div>`;
+  await cargarCatalogoProductos();
   pintarPasoPedido(cliente);
 }
 
 function pintarPasoPedido(cliente){
   const w = PEDIDO_WIZ;
-  const precio = PRECIOS_BIDON[w.tipo] || 0;
-  const total = precio * w.cantidad;
+  const carrito = obtenerCarrito();
+  const total = totalCarrito(carrito);
+  const cantidadItems = cantidadTotalCarrito(carrito);
   const pasos = ['¿Qué necesitas?','¿Dónde lo entregamos?','¿Cuándo lo quieres?','Indicaciones'];
 
   let contenido = '';
   if (w.paso === 1) {
+    const filtro = BUSQUEDA_PRODUCTOS.trim().toLowerCase();
+    const productosFiltrados = CATALOGO_PRODUCTOS.filter(p => !filtro || p.nombre.toLowerCase().includes(filtro) || (p.categoria||'').toLowerCase().includes(filtro));
+    const categorias = [...new Set(productosFiltrados.map(p=>p.categoria||'Otros'))];
+
     contenido = `
-      <div class="card p-5 fade-in">
-        <label class="text-sm font-semibold text-slate-600 mb-2 block">Bidón</label>
-        <div class="grid grid-cols-2 gap-3 mb-4">
-          ${['20L','12L'].map(t => `
-            <button data-tipo="${t}" class="btn-tipo ${w.tipo===t?'ring-2 ring-sky-500 bg-sky-50':'bg-slate-50'} rounded-2xl p-4 text-center">
-              <div class="text-2xl mb-1">💧</div>
-              <div class="font-bold text-slate-700">Bidón ${t}</div>
-              <div class="text-xs text-slate-500">${clp(PRECIOS_BIDON[t])}</div>
-            </button>`).join('')}
-        </div>
-        <label class="text-sm font-semibold text-slate-600 mb-2 block">Cantidad</label>
-        <div class="flex items-center justify-center gap-6 mb-4">
-          <button id="btn-menos" class="w-11 h-11 rounded-full bg-slate-100 text-xl font-bold">−</button>
-          <span id="lbl-cantidad" class="text-2xl font-extrabold w-10 text-center">${w.cantidad}</span>
-          <button id="btn-mas" class="w-11 h-11 rounded-full bg-sky-100 text-sky-700 text-xl font-bold">+</button>
-        </div>
-        <div class="flex justify-between items-center bg-sky-50 rounded-xl px-4 py-3">
-          <span class="text-sm text-slate-600">Total</span>
-          <span class="text-lg font-extrabold text-sky-700" id="lbl-total">${clp(total)}</span>
-        </div>
-      </div>`;
+      <div class="mb-3">
+        <input id="in-buscar-producto" type="text" placeholder="🔎 Buscar producto..." value="${BUSQUEDA_PRODUCTOS}"
+          class="w-full border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-sky-400">
+      </div>
+      <div id="lista-productos">
+        ${productosFiltrados.length === 0 ? emptyState('🔎','No encontramos productos','Prueba con otro término de búsqueda.') :
+          categorias.map(cat => `
+            <p class="text-xs font-bold text-slate-400 uppercase tracking-wide mt-4 mb-2">${cat}</p>
+            <div class="space-y-2">
+              ${productosFiltrados.filter(p=>(p.categoria||'Otros')===cat).map(p => {
+                const cant = cantidadEnCarrito(p.id);
+                return `
+                <div class="card p-3 flex items-center gap-3">
+                  <div class="w-11 h-11 rounded-xl bg-sky-50 flex items-center justify-center text-xl shrink-0">${p.emoji || '💧'}</div>
+                  <div class="flex-1 min-w-0">
+                    <p class="font-semibold text-slate-700 text-sm truncate">${p.nombre}</p>
+                    <p class="text-xs text-slate-500">${clp(p.precio)}</p>
+                  </div>
+                  ${cant === 0 ? `
+                    <button data-pid="${p.id}" class="btn-add-carrito btn-primary text-sm px-4 py-2 shrink-0">Agregar</button>
+                  ` : `
+                    <div class="flex items-center gap-2 shrink-0">
+                      <button data-pid="${p.id}" data-delta="-1" class="btn-cart-delta stepper-btn bg-slate-100 text-slate-600">−</button>
+                      <span class="w-6 text-center font-bold">${cant}</span>
+                      <button data-pid="${p.id}" data-delta="1" class="btn-cart-delta stepper-btn bg-sky-100 text-sky-700">+</button>
+                    </div>
+                  `}
+                </div>`;
+              }).join('')}
+            </div>
+          `).join('')
+        }
+      </div>
+      ${cantidadItems > 0 ? `
+        <div class="card p-4 mt-4 sticky bottom-20 md:bottom-4 fade-in" style="border:2px solid #bae6fd;">
+          <div class="flex justify-between items-center text-sm mb-1">
+            <span class="text-slate-500">${cantidadItems} producto(s) en tu carrito</span>
+            <span class="font-extrabold text-sky-700 text-base">${clp(total)}</span>
+          </div>
+        </div>` : ''}
+    `;
   } else if (w.paso === 2) {
     contenido = `
       <div class="card p-5 fade-in">
@@ -680,6 +794,9 @@ function pintarPasoPedido(cliente){
         ${w.horario==='programado' ? `<input id="in-fecha-prog" type="datetime-local" value="${w.fecha_programada}" class="w-full border rounded-xl px-4 py-3 mt-2">` : ''}
       </div>`;
   } else if (w.paso === 4) {
+    const filas = carrito.map(it => `
+      <div class="flex justify-between text-sm"><span>${it.cantidad} × ${it.nombre}</span><b>${clp(it.precio * it.cantidad)}</b></div>
+    `).join('');
     contenido = `
       <div class="card p-5 fade-in mb-4">
         <label class="text-sm font-semibold text-slate-600 mb-2 block">Indicaciones (opcional)</label>
@@ -693,8 +810,7 @@ function pintarPasoPedido(cliente){
       <div class="card p-5 fade-in">
         <h3 class="font-bold text-slate-700 mb-3">Resumen del pedido</h3>
         <div class="space-y-1.5 text-sm text-slate-600">
-          <div class="flex justify-between"><span>Cantidad</span><b>${w.cantidad} × Bidón ${w.tipo}</b></div>
-          <div class="flex justify-between"><span>Precio unitario</span><b>${clp(precio)}</b></div>
+          ${filas}
           <div class="flex justify-between"><span>Dirección</span><b>Torre ${w.torre} · Depto ${w.depto}</b></div>
           <div class="flex justify-between"><span>Horario</span><b>${w.horario==='asap'?'Lo antes posible':w.horario==='hoy'?'Hoy':'Programado'}</b></div>
           <div class="flex justify-between border-t pt-2 mt-2 text-base"><span class="font-bold">Total</span><b class="text-sky-700">${clp(total)}</b></div>
@@ -702,32 +818,43 @@ function pintarPasoPedido(cliente){
       </div>`;
   }
 
-  app.innerHTML = `
-    ${headerSecundario('Hacer pedido', '#/home')}
-    <div class="px-4">
-      <div class="flex items-center gap-1 mb-4">
-        ${[1,2,3,4].map(p => `<div class="h-1.5 flex-1 rounded-full ${p<=w.paso?'bg-sky-500':'bg-slate-200'}"></div>`).join('')}
-      </div>
-      <p class="text-xs font-semibold text-sky-600 mb-1">Paso ${w.paso} de 4</p>
-      <h2 class="text-lg font-bold text-slate-800 mb-3">${pasos[w.paso-1]}</h2>
-      ${contenido}
-      <div class="flex gap-3 mt-5 pb-8">
-        ${w.paso>1 ? `<button id="btn-atras" class="btn-ghost flex-1 py-3 font-semibold">Atrás</button>` : ''}
-        <button id="btn-siguiente" class="btn-primary flex-1 py-3">${w.paso<4 ? 'Continuar' : 'Confirmar pedido 💧'}</button>
-      </div>
+  const puedeContinuar = w.paso !== 1 || cantidadItems > 0;
+
+  document.getElementById('ped-wrap').innerHTML = `
+    <div class="flex items-center gap-1 mb-4">
+      ${[1,2,3,4].map(p => `<div class="h-1.5 flex-1 rounded-full ${p<=w.paso?'bg-sky-500':'bg-slate-200'}"></div>`).join('')}
+    </div>
+    <p class="text-xs font-semibold text-sky-600 mb-1">Paso ${w.paso} de 4</p>
+    <h2 class="text-lg font-bold text-slate-800 mb-3">${pasos[w.paso-1]}</h2>
+    ${contenido}
+    <div class="flex gap-3 mt-5 pb-8">
+      ${w.paso>1 ? `<button id="btn-atras" class="btn-ghost flex-1 py-3 font-semibold">Atrás</button>` : ''}
+      <button id="btn-siguiente" ${puedeContinuar?'':'disabled'} class="btn-primary flex-1 py-3">${w.paso<4 ? 'Continuar' : 'Confirmar pedido 💧'}</button>
     </div>
   `;
 
   if (w.paso===1){
-    document.querySelectorAll('.btn-tipo').forEach(b => b.addEventListener('click', ()=>{ w.tipo = b.getAttribute('data-tipo'); pintarPasoPedido(cliente); }));
-    document.getElementById('btn-menos').addEventListener('click', ()=>{ w.cantidad = Math.max(1, w.cantidad-1); pintarPasoPedido(cliente); });
-    document.getElementById('btn-mas').addEventListener('click', ()=>{ w.cantidad = Math.min(20, w.cantidad+1); pintarPasoPedido(cliente); });
+    const inputBuscar = document.getElementById('in-buscar-producto');
+    inputBuscar.addEventListener('input', ()=>{ BUSQUEDA_PRODUCTOS = inputBuscar.value; pintarPasoPedido(cliente); });
+    inputBuscar.focus(); inputBuscar.setSelectionRange(inputBuscar.value.length, inputBuscar.value.length);
+    document.querySelectorAll('.btn-add-carrito').forEach(b => b.addEventListener('click', ()=>{
+      const p = productoPorId(b.getAttribute('data-pid'));
+      if (p) agregarAlCarrito(p, 1);
+      pintarPasoPedido(cliente);
+    }));
+    document.querySelectorAll('.btn-cart-delta').forEach(b => b.addEventListener('click', ()=>{
+      const p = productoPorId(b.getAttribute('data-pid'));
+      const delta = parseInt(b.getAttribute('data-delta'),10);
+      if (p) agregarAlCarrito(p, delta);
+      pintarPasoPedido(cliente);
+    }));
   }
   if (w.paso===3){
     document.querySelectorAll('.btn-horario').forEach(b => b.addEventListener('click', ()=>{ w.horario = b.getAttribute('data-horario'); pintarPasoPedido(cliente); }));
   }
   if (w.paso>1) document.getElementById('btn-atras').addEventListener('click', ()=>{ guardarPasoActual(); w.paso--; pintarPasoPedido(cliente); });
   document.getElementById('btn-siguiente').addEventListener('click', async ()=>{
+    if (w.paso === 1 && cantidadTotalCarrito(obtenerCarrito()) === 0) { showToast('Agrega al menos un producto al carrito 💧'); return; }
     guardarPasoActual();
     if (w.paso < 4) { w.paso++; pintarPasoPedido(cliente); }
     else { await confirmarPedido(cliente); }
@@ -745,27 +872,42 @@ async function confirmarPedido(cliente){
   const btn = document.getElementById('btn-siguiente');
   btn.disabled = true; btn.textContent = 'Enviando...';
   try {
-    const precio = PRECIOS_BIDON[w.tipo] || 0;
-    const total = precio * w.cantidad;
+    const carrito = obtenerCarrito();
+    if (carrito.length === 0) throw new Error('Tu carrito está vacío.');
+    const total = totalCarrito(carrito);
+    const cantidadTotal = cantidadTotalCarrito(carrito);
     const miNombre = safeStorage.getItem(NOMBRE_KEY) || cliente.nombre;
+    const primerItem = carrito[0];
+
     const { data: pedidoCreado, error: errPedido } = await supabaseClient.from('pedidos').insert({
       cliente_id: cliente.id,
-      cantidad: w.cantidad,
-      tipo_bidon: w.tipo,
+      cantidad: cantidadTotal,
+      tipo_bidon: carrito.length > 1 ? `${primerItem.nombre} +${carrito.length-1} más` : primerItem.nombre,
       metodo_pago: w.pago,
       estado: 'solicitado',
       nombre_solicitante: miNombre,
       horario_tipo: w.horario,
       fecha_programada: w.horario==='programado' && w.fecha_programada ? w.fecha_programada : null,
       indicaciones: w.indicaciones || null,
-      precio_unitario: precio,
+      precio_unitario: primerItem.precio,
       total: total
     }).select().single();
     if (errPedido) throw errPedido;
 
-    // Puntos, bidones totales y racha
-    const ganancia = w.cantidad * PUNTOS_POR_BIDON;
-    const nuevoTotalBidones = (cliente.bidones_totales||0) + w.cantidad;
+    try {
+      const filas = carrito.map(it => ({
+        pedido_id: pedidoCreado.id,
+        producto_id: String(it.producto_id).startsWith('legado-') ? null : it.producto_id,
+        nombre_producto: it.nombre,
+        cantidad: it.cantidad,
+        precio_unitario: it.precio,
+        subtotal: it.precio * it.cantidad
+      }));
+      await supabaseClient.from('pedido_items').insert(filas);
+    } catch(e){ console.warn('No se pudieron guardar los pedido_items (¿falta la tabla?):', e); }
+
+    const ganancia = cantidadTotal * PUNTOS_POR_BIDON;
+    const nuevoTotalBidones = (cliente.bidones_totales||0) + cantidadTotal;
     let nuevaRacha = cliente.racha_actual || 0;
     const hoy = hoyStr();
     if (cliente.ultima_fecha_pedido === hoy) { /* ya cuenta hoy, no cambia */ }
@@ -784,6 +926,7 @@ async function confirmarPedido(cliente){
     await crearNotificacion(cliente.id, 'pedido', `📝 Tu pedido #${pedidoCreado.id.toString().slice(0,8).toUpperCase()} fue recibido. ¡Ganaste ${ganancia+puntosRacha} puntos!`);
     if (nivelAntes !== nivelDespues) await crearNotificacion(cliente.id, 'nivel', `🎉 ¡Subiste de nivel! Ahora eres ${nivelDespues}.`);
 
+    vaciarCarrito();
     await recargarClienteActual();
     lanzarConfeti('💧', 16);
     showToast('¡Pedido recibido! 💧');
@@ -797,14 +940,15 @@ async function confirmarPedido(cliente){
 }
 </script>
 <script>
-/* ============================================================
-   PANTALLA: SEGUIMIENTO DEL PEDIDO
-   ============================================================ */
 async function renderSeguimiento(cliente, pedidoId){
   app.innerHTML = shellCliente(`${headerSecundario('Seguimiento','#/home')}<div id="seg-content" class="px-0">${skeletonHome()}</div>`, 'home');
   const { data: pedido, error } = await supabaseClient.from('pedidos').select('*, repartidores(*)').eq('id', pedidoId).single();
   const cont = document.getElementById('seg-content');
   if (error || !pedido) { cont.innerHTML = emptyState('❓','No encontramos ese pedido',''); return; }
+  let items = [];
+  try { const { data } = await supabaseClient.from('pedido_items').select('*').eq('pedido_id', pedidoId); items = data || []; }
+  catch(e){ console.warn('Tabla pedido_items no disponible aún.'); }
+
   const estado = normalizaEstado(pedido.estado);
   const pasos = ['solicitado','preparando','en_camino','entregado'];
   const idxActual = pasos.indexOf(estado);
@@ -836,6 +980,10 @@ async function renderSeguimiento(cliente, pedidoId){
       </div>`;
   }
 
+  const detalleProductos = items.length > 0
+    ? items.map(it => `<div class="flex justify-between"><span>${it.cantidad} × ${it.nombre_producto}</span><b>${clp(it.subtotal)}</b></div>`).join('')
+    : `<div class="flex justify-between"><span>Cantidad</span><b>${pedido.cantidad} × ${pedido.tipo_bidon}</b></div>`;
+
   cont.innerHTML = `
     <div class="px-4">
       <div class="card p-5 mb-4 fade-in">
@@ -853,8 +1001,8 @@ async function renderSeguimiento(cliente, pedidoId){
       <div class="card p-5 mb-6 fade-in">
         <h3 class="font-bold text-slate-700 mb-2">Detalle</h3>
         <div class="space-y-1.5 text-sm text-slate-600">
-          <div class="flex justify-between"><span>Cantidad</span><b>${pedido.cantidad} × Bidón ${pedido.tipo_bidon}</b></div>
-          <div class="flex justify-between"><span>Total</span><b>${clp(pedido.total || (PRECIOS_BIDON[pedido.tipo_bidon]||0)*pedido.cantidad)}</b></div>
+          ${detalleProductos}
+          <div class="flex justify-between border-t pt-2 mt-2"><span class="font-bold">Total</span><b class="text-sky-700">${clp(pedido.total || (PRECIOS_BIDON[pedido.tipo_bidon]||0)*pedido.cantidad)}</b></div>
           <div class="flex justify-between"><span>Fecha</span><b>${fechaHora(pedido.created_at)}</b></div>
           ${pedido.indicaciones ? `<div class="flex justify-between"><span>Indicaciones</span><b>${pedido.indicaciones}</b></div>` : ''}
         </div>
@@ -863,9 +1011,6 @@ async function renderSeguimiento(cliente, pedidoId){
   `;
 }
 
-/* ============================================================
-   PANTALLA: HISTORIAL ("Mis pedidos")
-   ============================================================ */
 let FILTRO_HISTORIAL = 'todos';
 async function renderHistorial(cliente){
   app.innerHTML = shellCliente(`${headerSecundario('Mis pedidos','#/home')}<div id="hist-content" class="px-4">${skeletonHome()}</div>`, 'historial');
@@ -884,7 +1029,7 @@ function pintarHistorial(pedidos){
   const lista = filtrados.length>0 ? filtrados.map(p => `
     <a href="#/pedido/${p.id}" class="card p-4 mb-3 flex justify-between items-center block">
       <div>
-        <p class="font-semibold text-slate-700 text-sm">#${p.id.toString().slice(0,8).toUpperCase()} · ${p.cantidad} bidón(es) ${p.tipo_bidon}</p>
+        <p class="font-semibold text-slate-700 text-sm">#${p.id.toString().slice(0,8).toUpperCase()} · ${p.cantidad} ítem(s)</p>
         <p class="text-xs text-slate-400">${fechaHora(p.created_at)} · ${clp(p.total || (PRECIOS_BIDON[p.tipo_bidon]||0)*p.cantidad)}</p>
       </div>
       <span class="px-2 py-1 rounded-full text-xs font-semibold ${estadoColor(p.estado)}">${estadoLabel(p.estado)}</span>
@@ -900,9 +1045,6 @@ function pintarHistorial(pedidos){
 }
 </script>
 <script>
-/* ============================================================
-   PANTALLA: PUNTOS Y GAMIFICACIÓN
-   ============================================================ */
 async function renderPuntos(cliente){
   app.innerHTML = shellCliente(`${headerSecundario('Puntos y niveles','#/home')}<div id="pts-content" class="px-4">${skeletonHome()}</div>`, 'puntos');
   const nivel = infoNivel(cliente.puntos);
@@ -939,7 +1081,7 @@ async function renderPuntos(cliente){
     <div class="card p-5 mb-4 fade-in">
       <h3 class="font-bold text-slate-700 mb-2">Cómo ganar puntos</h3>
       <ul class="text-sm text-slate-600 space-y-1.5">
-        <li>💧 Hacer un pedido: +${PUNTOS_POR_BIDON} pts por bidón</li>
+        <li>💧 Hacer un pedido: +${PUNTOS_POR_BIDON} pts por unidad comprada</li>
         <li>🔥 Mantener tu racha activa: +${PUNTOS_POR_RACHA_DIA} pts extra por día</li>
         <li>🤝 Recomendar un vecino: +${PUNTOS_POR_REFERIDO_INVITADOR} pts</li>
         <li>🎉 Participar en promociones y desafíos especiales</li>
@@ -969,9 +1111,6 @@ async function renderPuntos(cliente){
 }
 function iconoRecompensa(tipo){ const m = { descuento:'🎁', gratis:'💧', cupon:'🎟️', exclusivo:'⭐' }; return m[tipo] || '🎁'; }
 
-/* ============================================================
-   PANTALLA: NOTIFICACIONES
-   ============================================================ */
 async function renderNotificaciones(cliente){
   app.innerHTML = shellCliente(`${headerSecundario('Notificaciones','#/home')}<div id="notif-content" class="px-4">${skeletonHome()}</div>`, 'notificaciones');
   let notifs = [];
@@ -996,9 +1135,6 @@ async function renderNotificaciones(cliente){
   }));
 }
 
-/* ============================================================
-   PANTALLA: PERFIL
-   ============================================================ */
 async function renderPerfil(cliente){
   const opciones = [
     { icon:'📝', label:'Mis datos', ruta:null, accion:'datos' },
@@ -1039,9 +1175,6 @@ async function renderPerfil(cliente){
   });
 }
 
-/* ============================================================
-   PANTALLA: REFERIDOS
-   ============================================================ */
 async function renderReferidos(cliente){
   let codigo = cliente.codigo_referido;
   if (!codigo) {
@@ -1083,12 +1216,10 @@ async function renderReferidos(cliente){
 }
 </script>
 <script>
-/* ============================================================
-   PANEL ADMIN — SHELL (sidebar) + ROUTER INTERNO
-   ============================================================ */
 const ADMIN_SECCIONES = [
   { id:'resumen', label:'Resumen', icon:'📊' },
   { id:'pedidos', label:'Pedidos', icon:'📦' },
+  { id:'productos', label:'Productos', icon:'🛒' },
   { id:'clientes', label:'Clientes', icon:'👥' },
   { id:'torres', label:'Torres', icon:'🏢' },
   { id:'inventario', label:'Inventario', icon:'💧' },
@@ -1142,6 +1273,7 @@ async function renderAdmin(seccion){
   switch(seccion){
     case 'resumen': return renderAdminResumen();
     case 'pedidos': return renderAdminPedidos();
+    case 'productos': return renderAdminProductos();
     case 'clientes': return renderAdminClientes();
     case 'torres': return renderAdminTorres();
     case 'inventario': return renderAdminInventario();
@@ -1154,9 +1286,6 @@ async function renderAdmin(seccion){
 }
 </script>
 <script>
-/* ============================================================
-   ADMIN — RESUMEN
-   ============================================================ */
 async function renderAdminResumen(){
   const cont = document.getElementById('admin-content');
   const [{ data: pedidos }, { data: clientes }] = await Promise.all([
@@ -1177,7 +1306,7 @@ async function renderAdminResumen(){
   const cards = [
     { label:'Pedidos de hoy', valor: pedidosHoy.length, icon:'📦' },
     { label:'Ventas de hoy', valor: clp(ventasHoy), icon:'💰' },
-    { label:'Bidones vendidos hoy', valor: bidonesHoy, icon:'💧' },
+    { label:'Unidades vendidas hoy', valor: bidonesHoy, icon:'💧' },
     { label:'Clientes activos', valor: clientesActivos, icon:'👥' },
     { label:'Pedidos pendientes', valor: pendientes, icon:'⏳' },
     { label:'Entregas a tiempo', valor: entregasATiempo + '%', icon:'✅' },
@@ -1239,9 +1368,6 @@ function dibujarGraficosResumen(pedidos, clientes){
 }
 </script>
 <script>
-/* ============================================================
-   ADMIN — PEDIDOS
-   ============================================================ */
 async function renderAdminPedidos(){
   const cont = document.getElementById('admin-content');
   const { data: pedidos } = await supabaseClient.from('pedidos').select('*, clientes(nombre, apellido, torre, depto)').order('created_at', { ascending:false }).limit(200);
@@ -1251,7 +1377,7 @@ async function renderAdminPedidos(){
       <td class="py-2 px-3 text-sm">${p.clientes ? (p.clientes.nombre+' '+(p.clientes.apellido||'')) : (p.nombre_solicitante||'—')}</td>
       <td class="py-2 px-3 text-sm">${p.clientes?.torre||'-'}</td>
       <td class="py-2 px-3 text-sm">${p.clientes?.depto||'-'}</td>
-      <td class="py-2 px-3 text-sm">${p.cantidad} ${p.tipo_bidon}</td>
+      <td class="py-2 px-3 text-sm">${p.cantidad} ítem(s)</td>
       <td class="py-2 px-3 text-sm font-semibold">${clp(p.total || (PRECIOS_BIDON[p.tipo_bidon]||0)*p.cantidad)}</td>
       <td class="py-2 px-3">
         <select data-id="${p.id}" class="sel-estado text-xs border rounded-lg px-2 py-1 ${estadoColor(p.estado)}">
@@ -1296,9 +1422,14 @@ async function renderAdminPedidos(){
     renderAdminPedidos();
   }));
 
-  document.querySelectorAll('.btn-ver-pedido').forEach(b => b.addEventListener('click', ()=>{
+  document.querySelectorAll('.btn-ver-pedido').forEach(b => b.addEventListener('click', async ()=>{
     const p = (pedidos||[]).find(x=>x.id===b.getAttribute('data-id'));
     if (!p) return;
+    let items = [];
+    try { const { data } = await supabaseClient.from('pedido_items').select('*').eq('pedido_id', p.id); items = data || []; } catch(e){}
+    const detalleItems = items.length>0
+      ? items.map(it => `<div class="flex justify-between"><span>${it.cantidad} × ${it.nombre_producto}</span><b>${clp(it.subtotal)}</b></div>`).join('')
+      : `<p>${p.cantidad} × ${p.tipo_bidon}</p>`;
     document.getElementById('modal-pedido').innerHTML = `
       <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" id="overlay-pedido">
         <div class="bg-white rounded-2xl p-6 max-w-sm w-full">
@@ -1306,7 +1437,7 @@ async function renderAdminPedidos(){
           <div class="text-sm space-y-1.5 text-slate-600">
             <p><b>Cliente:</b> ${p.clientes?.nombre||p.nombre_solicitante||'—'} ${p.clientes?.apellido||''}</p>
             <p><b>Torre/Depto:</b> ${p.clientes?.torre||'-'} / ${p.clientes?.depto||'-'}</p>
-            <p><b>Cantidad:</b> ${p.cantidad} × ${p.tipo_bidon}</p>
+            <div class="border-t pt-1.5 mt-1.5">${detalleItems}</div>
             <p><b>Total:</b> ${clp(p.total||0)}</p>
             <p><b>Pago:</b> ${p.metodo_pago}</p>
             <p><b>Horario:</b> ${p.horario_tipo||'-'}</p>
@@ -1320,9 +1451,6 @@ async function renderAdminPedidos(){
   }));
 }
 
-/* ============================================================
-   ADMIN — CLIENTES
-   ============================================================ */
 async function renderAdminClientes(){
   const cont = document.getElementById('admin-content');
   const { data: clientes } = await supabaseClient.from('clientes').select('*').order('puntos', { ascending:false });
@@ -1385,9 +1513,6 @@ async function renderAdminClientes(){
   }));
 }
 
-/* ============================================================
-   ADMIN — TORRES
-   ============================================================ */
 async function renderAdminTorres(){
   const cont = document.getElementById('admin-content');
   const { data: clientes } = await supabaseClient.from('clientes').select('*');
@@ -1421,9 +1546,119 @@ async function renderAdminTorres(){
 }
 </script>
 <script>
-/* ============================================================
-   ADMIN — INVENTARIO
-   ============================================================ */
+let BUSQUEDA_ADMIN_PRODUCTOS = '';
+let PAGINA_ADMIN_PRODUCTOS = 1;
+const PRODUCTOS_POR_PAGINA = 20;
+
+async function renderAdminProductos(){
+  const cont = document.getElementById('admin-content');
+  let productos = [];
+  try { const { data, error } = await supabaseClient.from('productos').select('*').order('nombre'); if (error) throw error; productos = data || []; }
+  catch(e){ console.warn('Tabla productos no disponible aún:', e); }
+
+  cont.innerHTML = `
+    <h1 class="text-2xl font-bold text-slate-800 mb-1 fade-in">Productos</h1>
+    <p class="text-slate-500 text-sm mb-4">Catálogo del carrito de compra. Soporta cientos o miles de productos — usa el buscador para filtrar.</p>
+
+    <div class="card p-4 mb-4">
+      <h3 class="font-bold text-slate-700 mb-3">Agregar nuevo producto</h3>
+      <div class="grid md:grid-cols-5 gap-2">
+        <input id="prod-nombre" placeholder="Nombre (ej: Bidón 20L)" class="border rounded-lg px-2 py-2 text-sm md:col-span-2">
+        <input id="prod-categoria" placeholder="Categoría (ej: Bidones)" class="border rounded-lg px-2 py-2 text-sm">
+        <input id="prod-precio" type="number" placeholder="Precio CLP" class="border rounded-lg px-2 py-2 text-sm">
+        <input id="prod-emoji" placeholder="Emoji (💧)" maxlength="4" class="border rounded-lg px-2 py-2 text-sm">
+      </div>
+      <button id="btn-crear-producto" class="btn-primary px-6 py-2 mt-3 text-sm">Agregar producto</button>
+    </div>
+
+    <div class="flex items-center gap-2 mb-3">
+      <input id="in-buscar-admin-prod" type="text" placeholder="🔎 Buscar por nombre o categoría..." value="${BUSQUEDA_ADMIN_PRODUCTOS}"
+        class="border rounded-xl px-4 py-2 text-sm flex-1">
+      <span class="text-xs text-slate-400 whitespace-nowrap">${productos.length} producto(s)</span>
+    </div>
+    <div id="tabla-productos-wrap"></div>
+  `;
+
+  pintarTablaProductosAdmin(productos);
+
+  document.getElementById('btn-crear-producto').addEventListener('click', async ()=>{
+    const nombre = document.getElementById('prod-nombre').value.trim();
+    const categoria = document.getElementById('prod-categoria').value.trim() || 'Otros';
+    const precio = parseInt(document.getElementById('prod-precio').value,10);
+    const emoji = document.getElementById('prod-emoji').value.trim() || '💧';
+    if (!nombre || !precio) { showToast('Completa al menos nombre y precio'); return; }
+    try {
+      await supabaseClient.from('productos').insert({ nombre, categoria, precio, emoji, activo:true });
+      showToast('Producto agregado ✅');
+      await cargarCatalogoProductos(true);
+      renderAdminProductos();
+    } catch(e){ showToast('No se pudo crear (¿falta la tabla productos?): ' + (e.message||'')); }
+  });
+
+  const inputBuscar = document.getElementById('in-buscar-admin-prod');
+  inputBuscar.addEventListener('input', ()=>{
+    BUSQUEDA_ADMIN_PRODUCTOS = inputBuscar.value;
+    PAGINA_ADMIN_PRODUCTOS = 1;
+    pintarTablaProductosAdmin(productos);
+  });
+}
+
+function pintarTablaProductosAdmin(productos){
+  const wrap = document.getElementById('tabla-productos-wrap');
+  const filtro = BUSQUEDA_ADMIN_PRODUCTOS.trim().toLowerCase();
+  const filtrados = productos.filter(p => !filtro || p.nombre.toLowerCase().includes(filtro) || (p.categoria||'').toLowerCase().includes(filtro));
+  const totalPaginas = Math.max(1, Math.ceil(filtrados.length / PRODUCTOS_POR_PAGINA));
+  PAGINA_ADMIN_PRODUCTOS = Math.min(PAGINA_ADMIN_PRODUCTOS, totalPaginas);
+  const inicio = (PAGINA_ADMIN_PRODUCTOS-1) * PRODUCTOS_POR_PAGINA;
+  const pagina = filtrados.slice(inicio, inicio + PRODUCTOS_POR_PAGINA);
+
+  const filas = pagina.map(p => `
+    <tr class="border-b hover:bg-slate-50">
+      <td class="py-2 px-3 text-lg">${p.emoji||'💧'}</td>
+      <td class="py-2 px-3 text-sm font-semibold"><input data-id="${p.id}" data-campo="nombre" class="in-edit-prod border rounded-lg px-2 py-1 text-sm w-full" value="${p.nombre}"></td>
+      <td class="py-2 px-3 text-sm"><input data-id="${p.id}" data-campo="categoria" class="in-edit-prod border rounded-lg px-2 py-1 text-sm w-full" value="${p.categoria||''}"></td>
+      <td class="py-2 px-3 text-sm"><input data-id="${p.id}" data-campo="precio" type="number" class="in-edit-prod border rounded-lg px-2 py-1 text-sm w-24" value="${p.precio}"></td>
+      <td class="py-2 px-3"><button data-id="${p.id}" data-activo="${p.activo}" class="btn-toggle-producto text-xs px-2 py-1 rounded-full font-semibold ${p.activo?'bg-green-100 text-green-700':'bg-slate-100 text-slate-500'}">${p.activo?'Activo':'Inactivo'}</button></td>
+      <td class="py-2 px-3"><button data-id="${p.id}" class="btn-guardar-prod text-xs text-sky-600 font-semibold">Guardar</button></td>
+    </tr>`).join('');
+
+  wrap.innerHTML = `
+    <div class="card overflow-x-auto">
+      <table class="w-full text-left">
+        <thead class="bg-slate-50 text-xs text-slate-500 uppercase"><tr><th class="py-2 px-3"></th><th class="py-2 px-3">Nombre</th><th class="py-2 px-3">Categoría</th><th class="py-2 px-3">Precio</th><th class="py-2 px-3">Estado</th><th class="py-2 px-3"></th></tr></thead>
+        <tbody>${filas || `<tr><td colspan="6" class="py-8 text-center text-slate-400">${productos.length===0 ? 'Aún no has creado productos. Agrega el primero arriba.' : 'Sin resultados para tu búsqueda.'}</td></tr>`}</tbody>
+      </table>
+    </div>
+    ${totalPaginas>1 ? `
+      <div class="flex items-center justify-center gap-3 mt-3 text-sm">
+        <button id="btn-pag-prev" class="btn-ghost px-3 py-1.5" ${PAGINA_ADMIN_PRODUCTOS<=1?'disabled':''}>← Anterior</button>
+        <span class="text-slate-500">Página ${PAGINA_ADMIN_PRODUCTOS} de ${totalPaginas}</span>
+        <button id="btn-pag-next" class="btn-ghost px-3 py-1.5" ${PAGINA_ADMIN_PRODUCTOS>=totalPaginas?'disabled':''}>Siguiente →</button>
+      </div>` : ''}
+  `;
+
+  document.querySelectorAll('.btn-toggle-producto').forEach(b => b.addEventListener('click', async ()=>{
+    const activo = b.getAttribute('data-activo') === 'true';
+    await supabaseClient.from('productos').update({ activo: !activo }).eq('id', b.getAttribute('data-id'));
+    await cargarCatalogoProductos(true);
+    renderAdminProductos();
+  }));
+  document.querySelectorAll('.btn-guardar-prod').forEach(b => b.addEventListener('click', async ()=>{
+    const id = b.getAttribute('data-id');
+    const inputs = document.querySelectorAll(`.in-edit-prod[data-id="${id}"]`);
+    const patch = {};
+    inputs.forEach(inp => { const campo = inp.getAttribute('data-campo'); patch[campo] = campo==='precio' ? (parseInt(inp.value,10)||0) : inp.value.trim(); });
+    await supabaseClient.from('productos').update(patch).eq('id', id);
+    await cargarCatalogoProductos(true);
+    showToast('Producto actualizado ✅');
+  }));
+  const btnPrev = document.getElementById('btn-pag-prev');
+  const btnNext = document.getElementById('btn-pag-next');
+  if (btnPrev) btnPrev.addEventListener('click', ()=>{ PAGINA_ADMIN_PRODUCTOS--; pintarTablaProductosAdmin(productos); });
+  if (btnNext) btnNext.addEventListener('click', ()=>{ PAGINA_ADMIN_PRODUCTOS++; pintarTablaProductosAdmin(productos); });
+}
+</script>
+<script>
 async function renderAdminInventario(){
   const cont = document.getElementById('admin-content');
   let inventario = [];
@@ -1489,9 +1724,6 @@ async function renderAdminInventario(){
   }));
 }
 
-/* ============================================================
-   ADMIN — ENTREGAS
-   ============================================================ */
 async function renderAdminEntregas(){
   const cont = document.getElementById('admin-content');
   const { data: pedidos } = await supabaseClient.from('pedidos').select('*, clientes(nombre, torre, depto)').in('estado', ['solicitado','preparando','en_camino','pendiente']).order('created_at', { ascending:false });
@@ -1555,9 +1787,6 @@ async function renderAdminEntregas(){
 }
 </script>
 <script>
-/* ============================================================
-   ADMIN — GAMIFICACIÓN
-   ============================================================ */
 async function renderAdminGamificacion(){
   const cont = document.getElementById('admin-content');
   let recompensas = [], canjes = [], referidos = [];
@@ -1635,26 +1864,37 @@ async function renderAdminGamificacion(){
   }));
 }
 
-/* ============================================================
-   ADMIN — REPORTES
-   ============================================================ */
 async function renderAdminReportes(){
   const cont = document.getElementById('admin-content');
   const { data: pedidos } = await supabaseClient.from('pedidos').select('*');
+  let items = [];
+  try { const { data } = await supabaseClient.from('pedido_items').select('*'); items = data || []; } catch(e){}
+
   cont.innerHTML = `
     <h1 class="text-2xl font-bold text-slate-800 mb-1 fade-in">Reportes</h1>
     <p class="text-slate-500 text-sm mb-4">Análisis con datos reales de tus pedidos.</p>
     <div class="grid md:grid-cols-2 gap-4">
-      <div class="card p-4"><h3 class="font-bold text-slate-700 mb-2 text-sm">Productos vendidos</h3><canvas id="chart-productos"></canvas></div>
+      <div class="card p-4"><h3 class="font-bold text-slate-700 mb-2 text-sm">Productos más vendidos</h3><canvas id="chart-productos"></canvas></div>
       <div class="card p-4"><h3 class="font-bold text-slate-700 mb-2 text-sm">Métodos de pago</h3><canvas id="chart-pagos"></canvas></div>
     </div>
   `;
   const lista = pedidos || [];
-  const tipos = ['20L','12L'];
+
+  let etiquetasProd, valoresProd;
+  if (items.length > 0) {
+    const agregados = {};
+    items.forEach(it => { agregados[it.nombre_producto] = (agregados[it.nombre_producto]||0) + (it.cantidad||0); });
+    const top = Object.entries(agregados).sort((a,b)=>b[1]-a[1]).slice(0,8);
+    etiquetasProd = top.map(t=>t[0]); valoresProd = top.map(t=>t[1]);
+  } else {
+    const tipos = ['20L','12L'];
+    etiquetasProd = tipos.map(t=>'Bidón '+t);
+    valoresProd = tipos.map(t=>lista.filter(p=>p.tipo_bidon===t).reduce((a,p)=>a+(p.cantidad||0),0));
+  }
   new Chart(document.getElementById('chart-productos'), {
     type:'bar',
-    data:{ labels: tipos.map(t=>'Bidón '+t), datasets:[{ label:'Cantidad vendida', data: tipos.map(t=>lista.filter(p=>p.tipo_bidon===t).reduce((a,p)=>a+(p.cantidad||0),0)), backgroundColor:'#0ea5e9', borderRadius:6 }] },
-    options:{ plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true}} }
+    data:{ labels: etiquetasProd, datasets:[{ label:'Unidades vendidas', data: valoresProd, backgroundColor:'#0ea5e9', borderRadius:6 }] },
+    options:{ plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true}}, indexAxis: etiquetasProd.length>4 ? 'y' : 'x' }
   });
   const pagos = ['efectivo','transferencia'];
   new Chart(document.getElementById('chart-pagos'), {
@@ -1664,21 +1904,14 @@ async function renderAdminReportes(){
   });
 }
 
-/* ============================================================
-   ADMIN — CONFIGURACIÓN
-   ============================================================ */
 async function renderAdminConfiguracion(){
   const cont = document.getElementById('admin-content');
   cont.innerHTML = `
     <h1 class="text-2xl font-bold text-slate-800 mb-1 fade-in">Configuración</h1>
     <p class="text-slate-500 text-sm mb-4">Ajustes generales de AguaTorre.</p>
     <div class="card p-5 mb-4">
-      <h3 class="font-bold text-slate-700 mb-2">Precios</h3>
-      <div class="grid grid-cols-2 gap-3 text-sm text-slate-600">
-        <div class="flex justify-between border rounded-xl px-3 py-2"><span>Bidón 20L</span><b>${clp(PRECIOS_BIDON['20L'])}</b></div>
-        <div class="flex justify-between border rounded-xl px-3 py-2"><span>Bidón 12L</span><b>${clp(PRECIOS_BIDON['12L'])}</b></div>
-      </div>
-      <p class="text-xs text-slate-400 mt-2">Para cambiar precios, edita la constante <code>PRECIOS_BIDON</code> en el código.</p>
+      <h3 class="font-bold text-slate-700 mb-2">Precios y catálogo</h3>
+      <p class="text-sm text-slate-600">Los precios ya no están fijos en el código: se administran desde <a href="#/admin/productos" class="text-sky-600 font-semibold underline">Productos</a>, donde puedes agregar, editar o desactivar cualquier cantidad de productos.</p>
     </div>
     <div class="card p-5 mb-4">
       <h3 class="font-bold text-slate-700 mb-2">Seguridad</h3>
