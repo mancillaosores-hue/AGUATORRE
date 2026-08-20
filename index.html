@@ -157,9 +157,21 @@ const HORA_INICIO_ENTREGA = HORA_INICIO_ENTREGA_SEMANA;
    entra por la Torre D y baja desde el depto de número más alto
    al más bajo, luego C, luego B, luego A (en ese orden fijo).
    ============================================================ */
+/* ============================================================
+   FIX: "a" y "A" (o " A " con espacios) se trataban como torres
+   DISTINTAS en todas partes (login, agrupación en admin, ruta de
+   reparto, gráficos). normalizaTorre() centraliza la limpieza
+   (recorta espacios + mayúsculas) para que SIEMPRE se compare/
+   guarde/muestre de forma consistente sin importar cómo la haya
+   tecleado el cliente.
+   ============================================================ */
+function normalizaTorre(torre){
+  return String(torre||'').trim().toUpperCase();
+}
+
 const ORDEN_TORRES_RUTA = ['D','C','B','A'];
 function ordenTorre(torre){
-  const idx = ORDEN_TORRES_RUTA.indexOf(String(torre||'').trim().toUpperCase());
+  const idx = ORDEN_TORRES_RUTA.indexOf(normalizaTorre(torre));
   return idx === -1 ? ORDEN_TORRES_RUTA.length : idx;
 }
 function numeroDepto(depto){
@@ -531,7 +543,11 @@ function renderLogin(){
 }
 
 async function handlePaso1(refCode){
-  const torre = document.getElementById('in-torre').value.trim();
+  /* FIX: se normaliza la torre a mayúsculas desde este punto de
+     entrada único. Como "torre" fluye hacia renderPaso2Clave,
+     renderPaso2Registro y handleRegistro, con normalizar aquí basta
+     para que TODO el flujo de login/registro use el valor correcto. */
+  const torre = normalizaTorre(document.getElementById('in-torre').value.trim());
   const depto = document.getElementById('in-depto').value.trim();
   const errEl = document.getElementById('login-error');
   const btn = document.getElementById('btn-continuar');
@@ -784,7 +800,7 @@ async function renderHome(cliente){
     <div class="fade-in flex justify-between items-start pt-2 mb-4">
       <div>
         <h1 class="text-2xl font-bold text-slate-800">¡Hola, ${miNombre}! 👋</h1>
-        <p class="text-slate-500 text-sm">Torre ${cliente.torre} · Depto ${cliente.depto}</p>
+        <p class="text-slate-500 text-sm">Torre ${normalizaTorre(cliente.torre)} · Depto ${cliente.depto}</p>
       </div>
       <a href="#/notificaciones" class="w-10 h-10 flex items-center justify-center rounded-full bg-white shadow text-lg relative">🔔</a>
     </div>
@@ -835,7 +851,7 @@ let PEDIDO_WIZ = { paso:1, depto: null, torre: null, horario:'hoy', fecha_progra
 let BUSQUEDA_PRODUCTOS = '';
 
 async function renderNuevoPedido(cliente){
-  PEDIDO_WIZ = { paso:1, torre: cliente.torre, depto: cliente.depto, horario:'hoy', fecha_programada:'', indicaciones:'', pago:'efectivo' };
+  PEDIDO_WIZ = { paso:1, torre: normalizaTorre(cliente.torre), depto: cliente.depto, horario:'hoy', fecha_programada:'', indicaciones:'', pago:'efectivo' };
   BUSQUEDA_PRODUCTOS = '';
   app.innerHTML = `${headerSecundario('Hacer pedido', '#/home')}<div id="ped-wrap" class="px-4">${skeletonHome()}</div>`;
   await cargarCatalogoProductos();
@@ -1011,7 +1027,7 @@ function pintarPasoPedido(cliente){
   });
 
   function guardarPasoActual(){
-    if (w.paso===2){ w.torre = document.getElementById('in-torre-p').value.trim() || w.torre; w.depto = document.getElementById('in-depto-p').value.trim() || w.depto; }
+    if (w.paso===2){ w.torre = normalizaTorre(document.getElementById('in-torre-p').value.trim()) || w.torre; w.depto = document.getElementById('in-depto-p').value.trim() || w.depto; }
     if (w.paso===3 && w.horario==='programado'){ const el=document.getElementById('in-fecha-prog'); if (el) w.fecha_programada = el.value; }
     if (w.paso===4){ w.indicaciones = document.getElementById('in-indicaciones').value.trim(); w.pago = document.getElementById('in-pago').value; }
   }
@@ -1356,7 +1372,7 @@ async function renderPerfil(cliente){
         <div class="w-16 h-16 rounded-full bg-sky-100 flex items-center justify-center text-3xl overflow-hidden">${cliente.avatar_url?`<img src="${cliente.avatar_url}" class="w-full h-full object-cover">`:'💧'}</div>
         <div>
           <p class="font-bold text-slate-800">${cliente.nombre} ${cliente.apellido||''}</p>
-          <p class="text-xs text-slate-500">Torre ${cliente.torre} · Depto ${cliente.depto}</p>
+          <p class="text-xs text-slate-500">Torre ${normalizaTorre(cliente.torre)} · Depto ${cliente.depto}</p>
           ${cliente.telefono?`<p class="text-xs text-slate-400">${cliente.telefono}</p>`:''}
         </div>
       </div>
@@ -1555,8 +1571,10 @@ function dibujarGraficosResumen(pedidos, clientes){
     options:{ plugins:{legend:{position:'bottom', labels:{boxWidth:10,font:{size:10}}}} }
   });
 
-  const torres = [...new Set(clientes.map(c=>c.torre))].filter(Boolean);
-  const porTorre = torres.map(t => pedidos.filter(p => (clientes.find(c=>c.id===p.cliente_id)||{}).torre === t).length);
+  /* FIX: normaliza torre (mayúsculas) para que el gráfico no separe
+     "a" y "A" en barras distintas. */
+  const torres = [...new Set(clientes.map(c=>normalizaTorre(c.torre)))].filter(Boolean);
+  const porTorre = torres.map(t => pedidos.filter(p => normalizaTorre((clientes.find(c=>c.id===p.cliente_id)||{}).torre) === t).length);
   new Chart(document.getElementById('chart-torres'), {
     type:'bar',
     data:{ labels: torres.map(t=>'Torre '+t), datasets:[{ label:'Pedidos', data: porTorre, backgroundColor:'#0ea5e9', borderRadius:6 }] },
@@ -1579,7 +1597,7 @@ async function renderAdminPedidos(){
     <tr class="border-b hover:bg-slate-50">
       <td class="py-2 px-3 text-xs font-mono">#${p.id.toString().slice(0,8).toUpperCase()}</td>
       <td class="py-2 px-3 text-sm">${p.clientes ? (p.clientes.nombre+' '+(p.clientes.apellido||'')) : (p.nombre_solicitante||'—')}</td>
-      <td class="py-2 px-3 text-sm">${p.clientes?.torre||'-'}</td>
+      <td class="py-2 px-3 text-sm">${p.clientes?.torre ? normalizaTorre(p.clientes.torre) : '-'}</td>
       <td class="py-2 px-3 text-sm">${p.clientes?.depto||'-'}</td>
       <td class="py-2 px-3 text-sm">${p.cantidad} ítem(s)</td>
       <td class="py-2 px-3 text-sm font-semibold">${clp(p.total || (PRECIOS_BIDON[p.tipo_bidon]||0)*p.cantidad)}</td>
@@ -1638,7 +1656,7 @@ async function renderAdminPedidos(){
           <h3 class="font-bold text-lg mb-3">Pedido #${p.id.toString().slice(0,8).toUpperCase()}</h3>
           <div class="text-sm space-y-1.5 text-slate-600">
             <p><b>Cliente:</b> ${p.clientes?.nombre||p.nombre_solicitante||'—'} ${p.clientes?.apellido||''}</p>
-            <p><b>Torre/Depto:</b> ${p.clientes?.torre||'-'} / ${p.clientes?.depto||'-'}</p>
+            <p><b>Torre/Depto:</b> ${p.clientes?.torre ? normalizaTorre(p.clientes.torre) : '-'} / ${p.clientes?.depto||'-'}</p>
             <div class="border-t pt-1.5 mt-1.5">${detalleItems}</div>
             <p><b>Total:</b> ${clp(p.total||0)}</p>
             <p><b>Pago:</b> ${p.metodo_pago}</p>
@@ -1667,7 +1685,7 @@ async function renderAdminClientes(){
       <td class="py-2 px-3 text-sm font-semibold">${c.nombre} ${c.apellido||''}</td>
       <td class="py-2 px-3 text-sm">${c.telefono||'—'}</td>
       <td class="py-2 px-3 text-sm">${c.correo||'—'}</td>
-      <td class="py-2 px-3 text-sm">${c.torre}</td>
+      <td class="py-2 px-3 text-sm">${normalizaTorre(c.torre)}</td>
       <td class="py-2 px-3 text-sm">${c.depto}</td>
       <td class="py-2 px-3 text-sm">${pedidosCliente.length}</td>
       <td class="py-2 px-3 text-sm">${c.puntos||0}</td>
@@ -1701,7 +1719,7 @@ async function renderAdminClientes(){
         <div class="bg-white rounded-2xl p-6 max-w-sm w-full">
           <h3 class="font-bold text-lg mb-3">${c.nombre} ${c.apellido||''}</h3>
           <div class="text-sm space-y-1.5 text-slate-600">
-            <p><b>Torre/Depto:</b> ${c.torre} / ${c.depto}</p>
+            <p><b>Torre/Depto:</b> ${normalizaTorre(c.torre)} / ${c.depto}</p>
             <p><b>Teléfono:</b> ${c.telefono||'—'}</p>
             <p><b>Correo:</b> ${c.correo||'—'}</p>
             <p><b>Puntos canjeables:</b> ${c.puntos||0}</p>
@@ -1722,10 +1740,12 @@ async function renderAdminTorres(){
   const cont = document.getElementById('admin-content');
   const { data: clientes } = await supabaseClient.from('clientes').select('*');
   const { data: pedidos } = await supabaseClient.from('pedidos').select('*');
-  const torres = [...new Set((clientes||[]).map(c=>c.torre))].filter(Boolean).sort();
+  /* FIX: se agrupa por torre NORMALIZADA (mayúsculas + sin espacios),
+     así "a" y "A" ya no aparecen como dos torres distintas. */
+  const torres = [...new Set((clientes||[]).map(c=>normalizaTorre(c.torre)))].filter(Boolean).sort();
 
   const filas = torres.map(t => {
-    const deptos = (clientes||[]).filter(c=>c.torre===t);
+    const deptos = (clientes||[]).filter(c=>normalizaTorre(c.torre)===t);
     const idsClientes = deptos.map(d=>d.id);
     const pedidosTorre = (pedidos||[]).filter(p=>idsClientes.includes(p.cliente_id));
     const ventas = pedidosTorre.reduce((a,p)=>a+(p.total || (PRECIOS_BIDON[p.tipo_bidon]||0)*p.cantidad),0);
@@ -1998,7 +2018,7 @@ async function generarYPintarRuta(){
     return numeroDepto(b.clientes?.depto) - numeroDepto(a.clientes?.depto);
   });
 
-  const torresPresentes = [...new Set(ordenados.map(p => (p.clientes?.torre||'—').toString().toUpperCase()))];
+  const torresPresentes = [...new Set(ordenados.map(p => p.clientes?.torre ? normalizaTorre(p.clientes.torre) : '—'))];
   const totalBidones = ordenados.reduce((a,p)=>a+(p.cantidad||0),0);
   const horario = horarioEntregaHoy();
 
@@ -2019,11 +2039,11 @@ async function generarYPintarRuta(){
   let torreActual = null;
   let numeroParada = 0;
   ordenados.forEach((p) => {
-    const torre = (p.clientes?.torre || '—').toString().toUpperCase();
+    const torre = p.clientes?.torre ? normalizaTorre(p.clientes.torre) : '—';
     if (torre !== torreActual) {
       if (torreActual !== null) html += `</div>`;
       torreActual = torre;
-      const countTorre = ordenados.filter(x => (x.clientes?.torre||'—').toString().toUpperCase() === torre).length;
+      const countTorre = ordenados.filter(x => (x.clientes?.torre ? normalizaTorre(x.clientes.torre) : '—') === torre).length;
       html += `
         <div class="mb-4">
           <p class="font-bold text-sky-700 text-sm uppercase tracking-wide mb-2 flex items-center gap-2">🏢 Torre ${torre} <span class="text-xs text-slate-400 font-normal normal-case">(${countTorre} parada${countTorre>1?'s':''})</span></p>
