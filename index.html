@@ -105,13 +105,6 @@ function hoyStr(){ return new Date().toISOString().slice(0,10); }
 function ayerStr(){ const d = new Date(); d.setDate(d.getDate()-1); return d.toISOString().slice(0,10); }
 function uuidCorto(){ return Math.random().toString(36).slice(2,8).toUpperCase(); }
 
-/* ============================================================
-   MANEJO DE ERRORES DE SUPABASE — IMPORTANTE:
-   supabase-js v2 NO lanza excepciones en errores de consulta,
-   siempre devuelve { data, error }. Este helper centraliza el
-   chequeo para que ningún error quede en silencio otra vez
-   (como pasó con pedido_items antes de este fix).
-   ============================================================ */
 function logSupabaseError(contexto, error){
   if (!error) return false;
   console.error(`[AguaTorre] Error en ${contexto}:`, error);
@@ -200,6 +193,14 @@ function gotaMascota(size = 64, mood = 'feliz', extraClass = '') {
   </svg>`;
 }
 
+/* ============================================================
+   SISTEMA DE NIVELES ("Gotas") — FIX IMPORTANTE:
+   El nivel ahora se calcula EXCLUSIVAMENTE con los puntos
+   acumulados históricos ("puntos_totales"), NO con el saldo
+   canjeable ("puntos"). Así, cuando un cliente gasta puntos en
+   una recompensa, su saldo baja pero su NIVEL nunca retrocede,
+   porque puntos_totales solo sube con el tiempo.
+   ============================================================ */
 const NIVELES = [
   { min: 0,    nombre: 'Gota Inicial',   emoji:'💧', color:'from-sky-300 to-sky-400' },
   { min: 200,  nombre: 'Gota Activa',    emoji:'💧', color:'from-sky-400 to-cyan-500' },
@@ -208,17 +209,36 @@ const NIVELES = [
   { min: 2000, nombre: 'Gota Premium',   emoji:'💎', color:'from-indigo-500 to-purple-500' },
   { min: 4000, nombre: 'Gota Leyenda',   emoji:'👑', color:'from-amber-400 to-orange-500' },
 ];
-function infoNivel(puntos){
-  puntos = puntos || 0;
+function infoNivel(puntosTotales){
+  puntosTotales = puntosTotales || 0;
   let idx = 0;
-  for (let i=0;i<NIVELES.length;i++){ if (puntos >= NIVELES[i].min) idx = i; }
+  for (let i=0;i<NIVELES.length;i++){ if (puntosTotales >= NIVELES[i].min) idx = i; }
   const actual = NIVELES[idx];
   const siguiente = NIVELES[idx+1] || null;
   const base = actual.min;
   const tope = siguiente ? siguiente.min : base + 1000;
-  const pct = siguiente ? Math.min(100, Math.round(((puntos-base)/(tope-base))*100)) : 100;
-  return { idx, actual, siguiente, pct, puntos, faltan: siguiente ? (tope - puntos) : 0, tope };
+  const pct = siguiente ? Math.min(100, Math.round(((puntosTotales-base)/(tope-base))*100)) : 100;
+  return { idx, actual, siguiente, pct, puntos: puntosTotales, faltan: siguiente ? (tope - puntosTotales) : 0, tope };
 }
+/* Helper: obtiene los puntos acumulados históricos de un cliente,
+   con respaldo hacia "puntos" para clientes creados antes de que
+   existiera la columna puntos_totales (compatibilidad). */
+function puntosTotalesDe(cliente){
+  return (cliente && (cliente.puntos_totales != null ? cliente.puntos_totales : cliente.puntos)) || 0;
+}
+
+/* ============================================================
+   BONO SUTIL POR NIVEL: mientras más alto el nivel, un pequeño
+   porcentaje extra de puntos por cada acción (pedido, racha).
+   Esto crea una diferenciación real entre niveles sin que dejen
+   de tener sentido los umbrales de puntos.
+   ============================================================ */
+const MULTIPLICADOR_POR_NIVEL = [1, 1.05, 1.10, 1.15, 1.20, 1.30];
+function conBonusNivel(puntosBase, nivelIdx){
+  const mult = MULTIPLICADOR_POR_NIVEL[nivelIdx] != null ? MULTIPLICADOR_POR_NIVEL[nivelIdx] : 1;
+  return Math.round(puntosBase * mult);
+}
+
 const PUNTOS_POR_BIDON = 100;
 const PUNTOS_POR_RACHA_DIA = 20;
 const PUNTOS_POR_REFERIDO_INVITADOR = 200;
@@ -226,14 +246,11 @@ const PUNTOS_POR_REFERIDO_INVITADO = 100;
 
 /* ============================================================
    ESTADOS DE PEDIDO — simplificado a solo 2 estados principales
-   (Solicitado / Entregado) por pedido de Diego. Se conserva
-   "cancelado" únicamente como opción operativa disponible en el
-   panel admin para casos excepcionales, pero el flujo normal del
-   cliente solo transita Solicitado -> Entregado.
+   (Solicitado / Entregado). Cancelado se conserva como opción
+   operativa disponible solo en el panel admin.
    ============================================================ */
 const ESTADOS_PEDIDO = ['solicitado','entregado','cancelado'];
 function normalizaEstado(estado){
-  // Compatibilidad con datos antiguos (antes de este rediseño y de la simplificación)
   if (estado === 'pendiente') return 'solicitado';
   if (estado === 'pagado') return 'entregado';
   if (estado === 'preparando' || estado === 'en_camino') return 'solicitado';
@@ -589,7 +606,7 @@ async function handleRegistro(torre, depto, refCode, clienteParaReclamar){
       const codigo_referido = uuidCorto();
       const { data: nuevo, error: errCrea } = await supabaseClient
         .from('clientes')
-        .insert({ nombre, apellido, telefono, correo, torre, depto, clave, codigo_referido, bidones_totales:0, puntos:0, racha_actual:0 })
+        .insert({ nombre, apellido, telefono, correo, torre, depto, clave, codigo_referido, bidones_totales:0, puntos:0, puntos_totales:0, racha_actual:0 })
         .select().single();
       if (errCrea) throw errCrea;
       cliente = nuevo;
@@ -597,12 +614,6 @@ async function handleRegistro(torre, depto, refCode, clienteParaReclamar){
     }
     if (esNuevo && refCode) {
       await procesarReferido(refCode, cliente).catch(e=>console.warn('Referido no procesado:', e));
-      /* FIX: procesarReferido() actualiza los puntos del cliente nuevo
-         directamente en Supabase, pero la variable local "cliente" (usada
-         más abajo para pintar el Home) seguía con el valor viejo (puntos:0)
-         porque se creó ANTES de sumar los puntos del referido. Sin este
-         refetch, el cliente nuevo veía 0 puntos en pantalla aunque la
-         base de datos ya tuviera los 100 puntos correctos guardados. */
       const { data: clienteActualizado, error: errRefetch } = await supabaseClient
         .from('clientes').select('*').eq('id', cliente.id).single();
       if (!errRefetch && clienteActualizado) cliente = clienteActualizado;
@@ -631,10 +642,19 @@ async function procesarReferido(codigo, clienteNuevo){
   });
   logSupabaseError('insertar registro de referido', errInsert);
 
-  const { error: errInvitador } = await supabaseClient.from('clientes').update({ puntos: (invitador.puntos||0) + PUNTOS_POR_REFERIDO_INVITADOR }).eq('id', invitador.id);
+  /* FIX: los puntos de referido suman tanto al saldo canjeable
+     ("puntos") como a los puntos acumulados históricos
+     ("puntos_totales"), ya que son puntos GANADOS de verdad. */
+  const { error: errInvitador } = await supabaseClient.from('clientes').update({
+    puntos: (invitador.puntos||0) + PUNTOS_POR_REFERIDO_INVITADOR,
+    puntos_totales: puntosTotalesDe(invitador) + PUNTOS_POR_REFERIDO_INVITADOR
+  }).eq('id', invitador.id);
   logSupabaseError('sumar puntos al invitador', errInvitador);
 
-  const { error: errInvitado } = await supabaseClient.from('clientes').update({ puntos: (clienteNuevo.puntos||0) + PUNTOS_POR_REFERIDO_INVITADO }).eq('id', clienteNuevo.id);
+  const { error: errInvitado } = await supabaseClient.from('clientes').update({
+    puntos: (clienteNuevo.puntos||0) + PUNTOS_POR_REFERIDO_INVITADO,
+    puntos_totales: puntosTotalesDe(clienteNuevo) + PUNTOS_POR_REFERIDO_INVITADO
+  }).eq('id', clienteNuevo.id);
   logSupabaseError('sumar puntos al cliente nuevo (invitado)', errInvitado);
 
   await crearNotificacion(invitador.id, 'referido', `🤝 ¡${clienteNuevo.nombre} se unió con tu código! Ganaste ${PUNTOS_POR_REFERIDO_INVITADOR} puntos.`);
@@ -653,8 +673,6 @@ function handleAdminAccess(){
 }
 </script>
 <script>
-/* FIX: ahora se revisa explícitamente el "error" de la respuesta,
-   ya que supabase-js no lanza excepciones por errores de consulta. */
 async function crearNotificacion(clienteId, tipo, mensaje){
   try {
     const { error } = await supabaseClient.from('notificaciones').insert({ cliente_id: clienteId, tipo, mensaje, leido:false });
@@ -665,24 +683,18 @@ async function crearNotificacion(clienteId, tipo, mensaje){
 
 async function renderHome(cliente){
   app.innerHTML = shellCliente(`<div id="home-content">${skeletonHome()}</div>`, 'home');
-  /* ============================================================
-     FIX: Blindaje contra puntos "desactualizados" en pantalla.
-     Antes, el Home confiaba ciegamente en el objeto "cliente" que le
-     pasaba el router (que podía quedar desactualizado justo después
-     de un registro con referido, por timing/caché). Ahora SIEMPRE
-     se vuelve a consultar Supabase antes de calcular nivel/puntos/
-     racha, garantizando que se muestre el valor real de la base de
-     datos sin depender de qué pasó antes en el flujo de login.
-     ============================================================ */
   const { data: clienteFresco, error: errFresco } = await supabaseClient
     .from('clientes').select('*').eq('id', cliente.id).single();
   if (!errFresco && clienteFresco) {
     cliente = clienteFresco;
-    CLIENTE_ACTUAL = clienteFresco; // mantiene el estado global sincronizado
+    CLIENTE_ACTUAL = clienteFresco;
   } else {
     logSupabaseError('recargar cliente en renderHome', errFresco);
   }
-  const nivel = infoNivel(cliente.puntos);
+  /* FIX: el nivel se calcula con los puntos ACUMULADOS históricos,
+     no con el saldo canjeable, para que nunca retroceda al gastar
+     puntos en recompensas. */
+  const nivel = infoNivel(puntosTotalesDe(cliente));
   const { data: pedidos } = await supabaseClient
     .from('pedidos').select('*').eq('cliente_id', cliente.id).order('created_at', { ascending:false }).limit(30);
   const ultimo = (pedidos && pedidos[0]) || null;
@@ -721,14 +733,14 @@ async function renderHome(cliente){
       <div class="progress-track h-3 bg-white/30">
         <div class="h-3 rounded-full bg-white" style="width:${nivel.pct}%"></div>
       </div>
-      <p class="text-xs mt-2 opacity-90">${nivel.puntos} ${nivel.siguiente ? '/ ' + nivel.tope : ''} puntos ${nivel.siguiente ? '· Te faltan ' + nivel.faltan + ' para ' + nivel.siguiente.nombre : '· ¡Nivel máximo alcanzado!'}</p>
+      <p class="text-xs mt-2 opacity-90">${nivel.puntos} ${nivel.siguiente ? '/ ' + nivel.tope : ''} pts acumulados ${nivel.siguiente ? '· Te faltan ' + nivel.faltan + ' para ' + nivel.siguiente.nombre : '· ¡Nivel máximo alcanzado!'}</p>
     </div>
 
     <div class="card p-5 mb-4 fade-in">
       <h2 class="font-bold text-slate-700 mb-3">Tus estadísticas</h2>
       <div class="grid grid-cols-3 gap-2 text-center">
         <div><p class="text-xl font-extrabold text-sky-600">${totalPedidos}</p><p class="text-[11px] text-slate-500">Pedidos</p></div>
-        <div><p class="text-xl font-extrabold text-sky-600">${cliente.puntos||0}</p><p class="text-[11px] text-slate-500">Puntos</p></div>
+        <div><p class="text-xl font-extrabold text-sky-600">${cliente.puntos||0}</p><p class="text-[11px] text-slate-500">Puntos disp.</p></div>
         <div><p class="text-xl font-extrabold text-orange-500">🔥 ${cliente.racha_actual||0}</p><p class="text-[11px] text-slate-500">Racha (días)</p></div>
       </div>
     </div>
@@ -830,9 +842,6 @@ function pintarPasoPedido(cliente){
         </div>
       </div>`;
   } else if (w.paso === 3) {
-    /* FIX: la entrega siempre es el mismo día, en la ventana fija
-       18:00–22:00. Se elimina "lo antes posible" porque no aplica.
-       El cliente conserva la opción de programar para otro momento. */
     const opciones = [
       { v:'hoy', label:`Hoy, entre ${HORA_INICIO_ENTREGA} y ${HORA_FIN_ENTREGA}`, icon:'🕕' },
       { v:'programado', label:'Programar entrega', icon:'🗓️' },
@@ -850,8 +859,6 @@ function pintarPasoPedido(cliente){
     const filas = carrito.map(it => `
       <div class="flex justify-between text-sm"><span>${it.cantidad} × ${it.nombre}</span><b>${clp(it.precio * it.cantidad)}</b></div>
     `).join('');
-    /* FIX: al elegir Transferencia se muestran los datos bancarios
-       reales para que el cliente pueda pagar de inmediato. */
     const datosBancariosHtml = w.pago === 'transferencia' ? `
       <div class="bg-sky-50 border border-sky-200 rounded-xl p-4 mt-3 text-sm text-slate-700 space-y-1">
         <p class="font-bold text-sky-700 mb-1">🏦 Datos para transferencia</p>
@@ -920,9 +927,6 @@ function pintarPasoPedido(cliente){
     document.querySelectorAll('.btn-horario').forEach(b => b.addEventListener('click', ()=>{ w.horario = b.getAttribute('data-horario'); pintarPasoPedido(cliente); }));
   }
   if (w.paso===4){
-    /* Al cambiar el método de pago, se re-pinta el paso para mostrar
-       u ocultar los datos bancarios de transferencia. Se guarda antes
-       el texto de indicaciones para no perderlo al re-renderizar. */
     document.getElementById('in-pago').addEventListener('change', (e)=>{
       w.indicaciones = document.getElementById('in-indicaciones').value.trim();
       w.pago = e.target.value;
@@ -971,14 +975,6 @@ async function confirmarPedido(cliente){
     }).select().single();
     if (errPedido) throw errPedido;
 
-    /* ============================================================
-       FIX CRÍTICO: antes este bloque usaba try/catch alrededor de
-       .insert(), pero supabase-js NO lanza excepción en errores de
-       consulta (devuelve {data, error}) — por eso pedido_items
-       quedaba vacío en silencio. Ahora se revisa "error" explícita-
-       mente y se avisa con un toast si falla, sin bloquear el pedido
-       (que ya se creó bien en la tabla "pedidos").
-       ============================================================ */
     let itemsGuardados = false;
     try {
       const filas = carrito.map(it => ({
@@ -992,7 +988,7 @@ async function confirmarPedido(cliente){
       const { error: errItems } = await supabaseClient.from('pedido_items').insert(filas);
       if (errItems) {
         logSupabaseError('guardar pedido_items', errItems);
-        showToast('⚠️ Pedido creado, pero no se pudo guardar el detalle del carrito (revisa RLS de pedido_items). Detalle: ' + errItems.message, 5000, true);
+        showToast('⚠️ Pedido creado, pero no se pudo guardar el detalle del carrito. Detalle: ' + errItems.message, 5000, true);
       } else {
         itemsGuardados = true;
       }
@@ -1001,25 +997,38 @@ async function confirmarPedido(cliente){
       showToast('⚠️ Pedido creado, pero hubo un error guardando el detalle del carrito.', 5000, true);
     }
 
-    const ganancia = cantidadTotal * PUNTOS_POR_BIDON;
+    /* ============================================================
+       FIX: sistema de niveles por puntos ACUMULADOS + bono por nivel.
+       - "ganancia" y "puntosRacha" ahora se calculan con un pequeño
+         bono según el nivel actual del cliente (mientras más alto el
+         nivel, más puntos por acción).
+       - Se actualizan TANTO "puntos" (saldo canjeable) COMO
+         "puntos_totales" (histórico, usado para el nivel). Ambos
+         suben igual al ganar puntos; solo "puntos" baja al canjear.
+       ============================================================ */
+    const nivelActualIdx = infoNivel(puntosTotalesDe(cliente)).idx;
+    const ganancia = conBonusNivel(cantidadTotal * PUNTOS_POR_BIDON, nivelActualIdx);
     const nuevoTotalBidones = (cliente.bidones_totales||0) + cantidadTotal;
     let nuevaRacha = cliente.racha_actual || 0;
     const hoy = hoyStr();
     if (cliente.ultima_fecha_pedido === hoy) { /* ya cuenta hoy, no cambia */ }
     else if (cliente.ultima_fecha_pedido === ayerStr()) { nuevaRacha = nuevaRacha + 1; }
     else { nuevaRacha = 1; }
-    const puntosRacha = (cliente.ultima_fecha_pedido !== hoy) ? PUNTOS_POR_RACHA_DIA : 0;
-    const nuevoPuntos = (cliente.puntos||0) + ganancia + puntosRacha;
+    const puntosRacha = (cliente.ultima_fecha_pedido !== hoy) ? conBonusNivel(PUNTOS_POR_RACHA_DIA, nivelActualIdx) : 0;
+    const gananciaTotal = ganancia + puntosRacha;
+    const nuevoPuntos = (cliente.puntos||0) + gananciaTotal;
+    const nuevoPuntosTotales = puntosTotalesDe(cliente) + gananciaTotal;
 
-    const nivelAntes = infoNivel(cliente.puntos).actual.nombre;
-    const nivelDespues = infoNivel(nuevoPuntos).actual.nombre;
+    const nivelAntes = infoNivel(puntosTotalesDe(cliente)).actual.nombre;
+    const nivelDespues = infoNivel(nuevoPuntosTotales).actual.nombre;
 
     const { error: errCliente } = await supabaseClient.from('clientes').update({
-      bidones_totales: nuevoTotalBidones, puntos: nuevoPuntos, racha_actual: nuevaRacha, ultima_fecha_pedido: hoy
+      bidones_totales: nuevoTotalBidones, puntos: nuevoPuntos, puntos_totales: nuevoPuntosTotales,
+      racha_actual: nuevaRacha, ultima_fecha_pedido: hoy
     }).eq('id', cliente.id);
     logSupabaseError('actualizar puntos del cliente', errCliente);
 
-    await crearNotificacion(cliente.id, 'pedido', `📝 Tu pedido #${pedidoCreado.id.toString().slice(0,8).toUpperCase()} fue recibido. ¡Ganaste ${ganancia+puntosRacha} puntos!`);
+    await crearNotificacion(cliente.id, 'pedido', `📝 Tu pedido #${pedidoCreado.id.toString().slice(0,8).toUpperCase()} fue recibido. ¡Ganaste ${gananciaTotal} puntos!`);
     if (nivelAntes !== nivelDespues) await crearNotificacion(cliente.id, 'nivel', `🎉 ¡Subiste de nivel! Ahora eres ${nivelDespues}.`);
 
     vaciarCarrito();
@@ -1046,8 +1055,6 @@ async function renderSeguimiento(cliente, pedidoId){
   catch(e){ console.warn('Tabla pedido_items no disponible aún.'); }
 
   const estado = normalizaEstado(pedido.estado);
-  /* FIX: timeline simplificado a solo 2 pasos (Solicitado / Entregado),
-     ya que el flujo de estados de AguaTorre se redujo a esos 2. */
   const pasos = ['solicitado','entregado'];
   const idxActual = pasos.indexOf(estado);
 
@@ -1146,14 +1153,14 @@ function pintarHistorial(pedidos){
 <script>
 async function renderPuntos(cliente){
   app.innerHTML = shellCliente(`${headerSecundario('Puntos y niveles','#/home')}<div id="pts-content" class="px-4">${skeletonHome()}</div>`, 'puntos');
-  const nivel = infoNivel(cliente.puntos);
+  /* FIX: el nivel se calcula con puntos acumulados históricos
+     (puntos_totales), NO con el saldo canjeable. Esto garantiza que
+     canjear una recompensa nunca haga bajar de nivel al cliente. */
+  const nivel = infoNivel(puntosTotalesDe(cliente));
   let recompensas = [];
   try { const { data } = await supabaseClient.from('recompensas').select('*').eq('activa', true).order('costo_puntos', { ascending:true }); recompensas = data || []; }
   catch(e){ console.warn('Tabla recompensas no disponible aún.'); }
 
-  /* NUEVO: historial de canjes del propio cliente, para que pueda
-     ver el estado (Pendiente/Entregado/Cancelado) de cada recompensa
-     que canjeó, sin depender solo de la notificación puntual. */
   let misCanjes = [];
   try { const { data } = await supabaseClient.from('canjes').select('*, recompensas(nombre, tipo, costo_puntos)').eq('cliente_id', cliente.id).order('created_at', { ascending:false }); misCanjes = data || []; }
   catch(e){ console.warn('Tabla canjes no disponible aún.'); }
@@ -1170,17 +1177,25 @@ async function renderPuntos(cliente){
 
   document.getElementById('pts-content').innerHTML = `
     <div class="card p-5 mb-4 text-center fade-in" style="background:linear-gradient(135deg,#0ea5e9,#0369a1)">
-      <div class="flex justify-center mb-1">${gotaMascota(60, cliente.puntos>=4000?'fiesta':'feliz')}</div>
+      <div class="flex justify-center mb-1">${gotaMascota(60, puntosTotalesDe(cliente)>=4000?'fiesta':'feliz')}</div>
       <p class="text-white/90 text-sm">Nivel actual</p>
       <p class="text-2xl font-extrabold text-white">${nivel.actual.emoji} ${nivel.actual.nombre}</p>
       <div class="progress-track h-3 bg-white/30 mt-3"><div class="h-3 rounded-full bg-white" style="width:${nivel.pct}%"></div></div>
-      <p class="text-xs text-white/90 mt-2">${nivel.puntos} pts ${nivel.siguiente ? '· faltan ' + nivel.faltan + ' pts para ' + nivel.siguiente.nombre : '· ¡nivel máximo!'}</p>
+      <p class="text-xs text-white/90 mt-2">${nivel.puntos} pts acumulados ${nivel.siguiente ? '· faltan ' + nivel.faltan + ' pts para ' + nivel.siguiente.nombre : '· ¡nivel máximo!'}</p>
+      <p class="text-xs text-white/80 mt-1">💰 Saldo disponible para canjear: <b>${cliente.puntos||0} pts</b></p>
+    </div>
+
+    <div class="card p-5 mb-4 fade-in bg-sky-50 border border-sky-200">
+      <p class="text-xs text-slate-500 leading-relaxed">
+        <b>ℹ️ ¿Cómo funciona?</b> Tu <b>nivel</b> se calcula con todos los puntos que has ganado en tu historia (nunca baja).
+        Tu <b>saldo canjeable</b> es lo que puedes gastar en recompensas y sí baja al canjear — pero tu nivel se mantiene igual. 🎉
+      </p>
     </div>
 
     <div class="card p-5 mb-4 fade-in">
       <h3 class="font-bold text-slate-700 mb-2">Escala de niveles</h3>
       <div class="space-y-2">
-        ${NIVELES.map(n => `<div class="flex justify-between text-sm ${n.nombre===nivel.actual.nombre?'font-bold text-sky-700':'text-slate-500'}"><span>${n.emoji} ${n.nombre}</span><span>${n.min}+ pts</span></div>`).join('')}
+        ${NIVELES.map((n,i) => `<div class="flex justify-between text-sm ${n.nombre===nivel.actual.nombre?'font-bold text-sky-700':'text-slate-500'}"><span>${n.emoji} ${n.nombre}</span><span>${n.min}+ pts ${MULTIPLICADOR_POR_NIVEL[i]>1 ? `· +${Math.round((MULTIPLICADOR_POR_NIVEL[i]-1)*100)}% pts` : ''}</span></div>`).join('')}
       </div>
     </div>
 
@@ -1191,6 +1206,7 @@ async function renderPuntos(cliente){
         <li>🔥 Mantener tu racha activa: +${PUNTOS_POR_RACHA_DIA} pts extra por día</li>
         <li>🤝 Recomendar un vecino: +${PUNTOS_POR_REFERIDO_INVITADOR} pts</li>
         <li>🎉 Participar en promociones y desafíos especiales</li>
+        <li>⭐ Bono por nivel: mientras más alto tu nivel, más puntos ganas por cada acción</li>
       </ul>
     </div>
 
@@ -1223,16 +1239,19 @@ async function renderPuntos(cliente){
   document.querySelectorAll('.btn-canjear').forEach(b => b.addEventListener('click', async ()=>{
     const costo = parseInt(b.getAttribute('data-costo'),10);
     if ((cliente.puntos||0) < costo) { showToast('Aún no tienes suficientes puntos 💧'); return; }
-    if (!confirm(`¿Canjear esta recompensa por ${costo} puntos?`)) return;
+    if (!confirm(`¿Canjear esta recompensa por ${costo} puntos? Tu saldo bajará, pero tu nivel se mantiene igual.`)) return;
     try {
       const { error: e1 } = await supabaseClient.from('canjes').insert({ cliente_id: cliente.id, recompensa_id: b.getAttribute('data-id'), estado:'pendiente' });
       if (logSupabaseError('crear canje', e1)) throw e1;
+      /* FIX PRINCIPAL: al canjear, SOLO se descuenta el saldo canjeable
+         ("puntos"). "puntos_totales" (que determina el nivel) NO se
+         toca, así el nivel del cliente nunca retrocede al gastar. */
       const { error: e2 } = await supabaseClient.from('clientes').update({ puntos: cliente.puntos - costo }).eq('id', cliente.id);
       logSupabaseError('descontar puntos por canje', e2);
       await crearNotificacion(cliente.id, 'recompensa', '🎁 ¡Recompensa desbloqueada! Un administrador la validará pronto.');
       await recargarClienteActual();
       lanzarConfeti('🎁', 12);
-      showToast('¡Recompensa canjeada! 🎁');
+      showToast('¡Recompensa canjeada! 🎁 Tu nivel se mantiene igual.');
       renderPuntos(CLIENTE_ACTUAL);
     } catch(e){ showToast('No se pudo canjear: ' + (e.message||''), 3000, true); }
   }));
@@ -1475,7 +1494,7 @@ function dibujarGraficosResumen(pedidos, clientes){
   const estadosCount = ESTADOS_PEDIDO.map(e => pedidos.filter(p => normalizaEstado(p.estado)===e).length);
   new Chart(document.getElementById('chart-estados'), {
     type:'doughnut',
-    data:{ labels:['Solicitado','Preparando','En camino','Entregado','Cancelado'], datasets:[{ data: estadosCount, backgroundColor:['#fbbf24','#fb923c','#38bdf8','#22c55e','#ef4444'] }] },
+    data:{ labels:['Solicitado','Entregado','Cancelado'], datasets:[{ data: estadosCount, backgroundColor:['#fbbf24','#22c55e','#ef4444'] }] },
     options:{ plugins:{legend:{position:'bottom', labels:{boxWidth:10,font:{size:10}}}} }
   });
 
@@ -1585,7 +1604,9 @@ async function renderAdminClientes(){
   const filas = (clientes||[]).map(c => {
     const pedidosCliente = (pedidos||[]).filter(p=>p.cliente_id===c.id);
     const ultimaCompra = pedidosCliente[0] ? fechaCorta(pedidosCliente[0].created_at) : '—';
-    const nivel = infoNivel(c.puntos);
+    /* FIX: el nivel mostrado en admin también usa puntos_totales,
+       consistente con el resto de la app. */
+    const nivel = infoNivel(puntosTotalesDe(c));
     return `
     <tr class="border-b hover:bg-slate-50 cursor-pointer btn-ver-cliente" data-id="${c.id}">
       <td class="py-2 px-3 text-sm font-semibold">${c.nombre} ${c.apellido||''}</td>
@@ -1595,6 +1616,7 @@ async function renderAdminClientes(){
       <td class="py-2 px-3 text-sm">${c.depto}</td>
       <td class="py-2 px-3 text-sm">${pedidosCliente.length}</td>
       <td class="py-2 px-3 text-sm">${c.puntos||0}</td>
+      <td class="py-2 px-3 text-sm text-slate-400">${puntosTotalesDe(c)}</td>
       <td class="py-2 px-3 text-xs">${nivel.actual.emoji} ${nivel.actual.nombre}</td>
       <td class="py-2 px-3 text-xs text-slate-400">${ultimaCompra}</td>
       <td class="py-2 px-3 text-xs">${(c.bidones_totales||0)>0?'<span class="text-green-600 font-semibold">Activo</span>':'<span class="text-slate-400">Nuevo</span>'}</td>
@@ -1603,13 +1625,13 @@ async function renderAdminClientes(){
 
   cont.innerHTML = `
     <h1 class="text-2xl font-bold text-slate-800 mb-1 fade-in">Clientes</h1>
-    <p class="text-slate-500 text-sm mb-4">${(clientes||[]).length} clientes registrados.</p>
+    <p class="text-slate-500 text-sm mb-4">${(clientes||[]).length} clientes registrados. "Puntos" = saldo canjeable · "Acumulados" = histórico (define el nivel).</p>
     <div class="card overflow-x-auto">
       <table class="w-full text-left">
         <thead class="bg-slate-50 text-xs text-slate-500 uppercase">
-          <tr><th class="py-2 px-3">Nombre</th><th class="py-2 px-3">Teléfono</th><th class="py-2 px-3">Correo</th><th class="py-2 px-3">Torre</th><th class="py-2 px-3">Depto</th><th class="py-2 px-3">Pedidos</th><th class="py-2 px-3">Puntos</th><th class="py-2 px-3">Nivel</th><th class="py-2 px-3">Última compra</th><th class="py-2 px-3">Estado</th></tr>
+          <tr><th class="py-2 px-3">Nombre</th><th class="py-2 px-3">Teléfono</th><th class="py-2 px-3">Correo</th><th class="py-2 px-3">Torre</th><th class="py-2 px-3">Depto</th><th class="py-2 px-3">Pedidos</th><th class="py-2 px-3">Puntos</th><th class="py-2 px-3">Acumulados</th><th class="py-2 px-3">Nivel</th><th class="py-2 px-3">Última compra</th><th class="py-2 px-3">Estado</th></tr>
         </thead>
-        <tbody>${filas || `<tr><td colspan="10" class="py-8 text-center text-slate-400">Aún no hay clientes registrados.</td></tr>`}</tbody>
+        <tbody>${filas || `<tr><td colspan="11" class="py-8 text-center text-slate-400">Aún no hay clientes registrados.</td></tr>`}</tbody>
       </table>
     </div>
     <div id="modal-cliente"></div>
@@ -1618,7 +1640,7 @@ async function renderAdminClientes(){
   document.querySelectorAll('.btn-ver-cliente').forEach(tr => tr.addEventListener('click', ()=>{
     const c = (clientes||[]).find(x=>x.id===tr.getAttribute('data-id'));
     if (!c) return;
-    const nivel = infoNivel(c.puntos);
+    const nivel = infoNivel(puntosTotalesDe(c));
     document.getElementById('modal-cliente').innerHTML = `
       <div class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
         <div class="bg-white rounded-2xl p-6 max-w-sm w-full">
@@ -1627,7 +1649,9 @@ async function renderAdminClientes(){
             <p><b>Torre/Depto:</b> ${c.torre} / ${c.depto}</p>
             <p><b>Teléfono:</b> ${c.telefono||'—'}</p>
             <p><b>Correo:</b> ${c.correo||'—'}</p>
-            <p><b>Puntos:</b> ${c.puntos||0} · Nivel ${nivel.actual.nombre} ${nivel.actual.emoji}</p>
+            <p><b>Puntos canjeables:</b> ${c.puntos||0}</p>
+            <p><b>Puntos acumulados (histórico):</b> ${puntosTotalesDe(c)}</p>
+            <p><b>Nivel:</b> ${nivel.actual.nombre} ${nivel.actual.emoji}</p>
             <p><b>Bidones totales:</b> ${c.bidones_totales||0}</p>
             <p><b>Racha actual:</b> 🔥 ${c.racha_actual||0} días</p>
             <p><b>Código de referido:</b> ${c.codigo_referido||'—'}</p>
@@ -1930,8 +1954,6 @@ async function renderAdminGamificacion(){
       <td class="py-2 px-3"><button data-id="${r.id}" data-activa="${r.activa}" class="btn-toggle-recompensa text-xs px-2 py-1 rounded-full font-semibold ${r.activa?'bg-green-100 text-green-700':'bg-slate-100 text-slate-500'}">${r.activa?'Activa':'Inactiva'}</button></td>
     </tr>`).join('');
 
-  /* FIX: el badge de estado antes siempre salía amarillo ("pendiente"),
-     sin importar el estado real del canje. Ahora usa color dinámico. */
   const colorEstadoCanje = { pendiente:'bg-amber-100 text-amber-700', entregado:'bg-green-100 text-green-700', cancelado:'bg-red-100 text-red-700' };
   const filasCanjes = canjes.map(c => `
     <tr class="border-b hover:bg-slate-50">
@@ -1989,15 +2011,11 @@ async function renderAdminGamificacion(){
     await supabaseClient.from('recompensas').update({ activa: !activa }).eq('id', b.getAttribute('data-id'));
     renderAdminGamificacion();
   }));
-  /* ============================================================
-     FIX: al cambiar el estado de un canje, antes no pasaba nada más
-     que actualizar la fila en la BD — el cliente nunca se enteraba
-     de que su recompensa fue entregada (o cancelada). Ahora:
-       - Si pasa a "entregado" -> se le notifica al cliente.
-       - Si pasa a "cancelado" -> se le notifica Y se le devuelven
-         automáticamente los puntos que gastó al canjear (solo si
-         antes NO estaba ya cancelado, para no duplicar la devolución).
-     ============================================================ */
+
+  /* FIX: al cambiar el estado de un canje, ahora se notifica al
+     cliente y, si se cancela, se le DEVUELVE el saldo canjeable
+     gastado (sin tocar puntos_totales, ya que el nivel no debe
+     verse afectado por canjes ni por sus cancelaciones). */
   document.querySelectorAll('.sel-canje').forEach(sel => sel.addEventListener('change', async ()=>{
     const id = sel.getAttribute('data-id');
     const nuevoEstado = sel.value;
@@ -2072,6 +2090,10 @@ async function renderAdminConfiguracion(){
     <div class="card p-5 mb-4">
       <h3 class="font-bold text-slate-700 mb-2">Precios y catálogo</h3>
       <p class="text-sm text-slate-600">Los precios ya no están fijos en el código: se administran desde <a href="#/admin/productos" class="text-sky-600 font-semibold underline">Productos</a>, donde puedes agregar, editar o desactivar cualquier cantidad de productos.</p>
+    </div>
+    <div class="card p-5 mb-4">
+      <h3 class="font-bold text-slate-700 mb-2">Sistema de niveles</h3>
+      <p class="text-sm text-slate-600">El nivel de cada cliente se calcula con sus <b>puntos acumulados históricos</b> (nunca bajan). El <b>saldo canjeable</b> es lo que puede gastar en recompensas y sí baja al canjear, pero su nivel se mantiene. Además, mientras más alto el nivel, gana un pequeño % extra de puntos por cada acción.</p>
     </div>
     <div class="card p-5 mb-4">
       <h3 class="font-bold text-slate-700 mb-2">Seguridad</h3>
