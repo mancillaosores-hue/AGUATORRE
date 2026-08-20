@@ -57,7 +57,11 @@
   @keyframes skel{ 0%{background-position:100% 50%;} 100%{background-position:0 50%;} }
   .cart-badge{ position:absolute; top:-6px; right:-6px; background:#ef4444; color:#fff; font-size:10px; font-weight:700; border-radius:999px; min-width:18px; height:18px; display:flex; align-items:center; justify-content:center; padding:0 4px; }
   .stepper-btn{ width:34px; height:34px; border-radius:999px; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:18px; }
-  .ruta-captura{ background:#ffffff; }
+  /* FIX: la ruta de reparto se capturaba con html2canvas ANTES de que
+     terminara la animación "fade-in" (opacity 0->1 en .35s), dejando
+     la imagen semi-transparente/lavada. Se fuerza opacidad completa
+     y se anula cualquier animación en este contenedor específico. */
+  .ruta-captura{ background:#ffffff; opacity:1 !important; animation:none !important; }
 </style>
 </head>
 <body class="min-h-screen">
@@ -327,6 +331,15 @@ async function capturarElementoComoImagen(elementId, nombreArchivo, textoCompart
   if (!el) { showToast('No se encontró el contenido a capturar.', 3000, true); return; }
   if (!window.html2canvas) { showToast('No se pudo generar la imagen (html2canvas no cargó). Revisa tu conexión.', 4000, true); return; }
   showToast('Generando imagen... 📸');
+  /* FIX: refuerzo extra contra imágenes "lavadas"/transparentes —
+     se fuerza opacidad 1 inline y se anula cualquier animación en
+     curso (como fade-in) antes de capturar, y se espera un frame
+     para asegurar que el navegador ya aplicó el estilo. */
+  const opacidadOriginal = el.style.opacity;
+  const animacionOriginal = el.style.animation;
+  el.style.opacity = '1';
+  el.style.animation = 'none';
+  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   try {
     const canvas = await html2canvas(el, { backgroundColor:'#ffffff', scale:2, useCORS:true });
     canvas.toBlob(async (blob) => {
@@ -348,6 +361,10 @@ async function capturarElementoComoImagen(elementId, nombreArchivo, textoCompart
   } catch(err){
     console.error('Error generando imagen:', err);
     showToast('Error al generar la imagen: ' + (err.message||''), 3000, true);
+  } finally {
+    // Restaura los estilos originales del contenedor tras la captura
+    el.style.opacity = opacidadOriginal;
+    el.style.animation = animacionOriginal;
   }
 }
 </script>
@@ -1986,7 +2003,7 @@ async function generarYPintarRuta(){
   const horario = horarioEntregaHoy();
 
   let html = `
-    <div id="ruta-captura" class="ruta-captura card p-5 mb-4 fade-in">
+    <div id="ruta-captura" class="ruta-captura card p-5 mb-4">
       <div class="text-center mb-4 pb-4 border-b-2 border-sky-100">
         <p class="text-2xl font-extrabold text-sky-700">💧 AguaTorre — Ruta de reparto</p>
         <p class="text-sm text-slate-500 capitalize">${fechaLarga()}</p>
