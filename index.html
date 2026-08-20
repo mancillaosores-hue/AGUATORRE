@@ -118,6 +118,25 @@ function logSupabaseError(contexto, error){
   return true;
 }
 
+/* ============================================================
+   DATOS BANCARIOS — se muestran cuando el cliente elige
+   "Transferencia" como método de pago.
+   ============================================================ */
+const DATOS_BANCARIOS = {
+  banco: 'Banco Estado',
+  tipoCuenta: 'Cuenta RUT',
+  numeroCuenta: '17952439',
+  rut: '17.952.439-2',
+  correo: 'mancilla.osores@gmail.com',
+  telefono: '+56 9 4577 2152'
+};
+
+/* ============================================================
+   VENTANA DE ENTREGA — siempre el mismo día, entre 18:00 y 22:00.
+   ============================================================ */
+const HORA_INICIO_ENTREGA = '18:00';
+const HORA_FIN_ENTREGA = '22:00';
+
 const PRECIOS_BIDON = { '20L': 2000, '12L': 1500 };
 let CATALOGO_PRODUCTOS = [];
 
@@ -205,21 +224,30 @@ const PUNTOS_POR_RACHA_DIA = 20;
 const PUNTOS_POR_REFERIDO_INVITADOR = 200;
 const PUNTOS_POR_REFERIDO_INVITADO = 100;
 
-const ESTADOS_PEDIDO = ['solicitado','preparando','en_camino','entregado','cancelado'];
+/* ============================================================
+   ESTADOS DE PEDIDO — simplificado a solo 2 estados principales
+   (Solicitado / Entregado) por pedido de Diego. Se conserva
+   "cancelado" únicamente como opción operativa disponible en el
+   panel admin para casos excepcionales, pero el flujo normal del
+   cliente solo transita Solicitado -> Entregado.
+   ============================================================ */
+const ESTADOS_PEDIDO = ['solicitado','entregado','cancelado'];
 function normalizaEstado(estado){
+  // Compatibilidad con datos antiguos (antes de este rediseño y de la simplificación)
   if (estado === 'pendiente') return 'solicitado';
   if (estado === 'pagado') return 'entregado';
+  if (estado === 'preparando' || estado === 'en_camino') return 'solicitado';
   if (!estado) return 'solicitado';
   return estado;
 }
 function estadoLabel(estadoRaw){
   const estado = normalizaEstado(estadoRaw);
-  const map = { solicitado: 'Solicitado 📝', preparando: 'Preparando 📦', en_camino: 'En camino 🚚', entregado: 'Entregado ✅', cancelado: 'Cancelado ❌' };
+  const map = { solicitado: 'Solicitado 📝', entregado: 'Entregado ✅', cancelado: 'Cancelado ❌' };
   return map[estado] || estado;
 }
 function estadoColor(estadoRaw){
   const estado = normalizaEstado(estadoRaw);
-  const map = { solicitado: 'bg-amber-100 text-amber-700', preparando: 'bg-orange-100 text-orange-700', en_camino: 'bg-blue-100 text-blue-700', entregado: 'bg-green-100 text-green-700', cancelado: 'bg-red-100 text-red-700' };
+  const map = { solicitado: 'bg-amber-100 text-amber-700', entregado: 'bg-green-100 text-green-700', cancelado: 'bg-red-100 text-red-700' };
   return map[estado] || 'bg-slate-100 text-slate-600';
 }
 
@@ -689,11 +717,11 @@ function skeletonHome(){
 }
 </script>
 <script>
-let PEDIDO_WIZ = { paso:1, depto: null, torre: null, horario:'asap', fecha_programada:'', indicaciones:'', pago:'efectivo' };
+let PEDIDO_WIZ = { paso:1, depto: null, torre: null, horario:'hoy', fecha_programada:'', indicaciones:'', pago:'efectivo' };
 let BUSQUEDA_PRODUCTOS = '';
 
 async function renderNuevoPedido(cliente){
-  PEDIDO_WIZ = { paso:1, torre: cliente.torre, depto: cliente.depto, horario:'asap', fecha_programada:'', indicaciones:'', pago:'efectivo' };
+  PEDIDO_WIZ = { paso:1, torre: cliente.torre, depto: cliente.depto, horario:'hoy', fecha_programada:'', indicaciones:'', pago:'efectivo' };
   BUSQUEDA_PRODUCTOS = '';
   app.innerHTML = `${headerSecundario('Hacer pedido', '#/home')}<div id="ped-wrap" class="px-4">${skeletonHome()}</div>`;
   await cargarCatalogoProductos();
@@ -765,9 +793,11 @@ function pintarPasoPedido(cliente){
         </div>
       </div>`;
   } else if (w.paso === 3) {
+    /* FIX: la entrega siempre es el mismo día, en la ventana fija
+       18:00–22:00. Se elimina "lo antes posible" porque no aplica.
+       El cliente conserva la opción de programar para otro momento. */
     const opciones = [
-      { v:'asap', label:'Lo antes posible', icon:'⚡' },
-      { v:'hoy', label:'Hoy', icon:'📅' },
+      { v:'hoy', label:`Hoy, entre ${HORA_INICIO_ENTREGA} y ${HORA_FIN_ENTREGA}`, icon:'🕕' },
       { v:'programado', label:'Programar entrega', icon:'🗓️' },
     ];
     contenido = `
@@ -776,12 +806,26 @@ function pintarPasoPedido(cliente){
           <button data-horario="${o.v}" class="btn-horario w-full flex items-center gap-3 text-left rounded-xl px-4 py-3 border ${w.horario===o.v?'border-sky-500 bg-sky-50':'border-slate-200'}">
             <span class="text-xl">${o.icon}</span><span class="font-semibold text-slate-700">${o.label}</span>
           </button>`).join('')}
+        ${w.horario==='hoy' ? `<p class="text-xs text-slate-400 px-1 pt-1">Todos los pedidos se entregan el mismo día, entre las ${HORA_INICIO_ENTREGA} y las ${HORA_FIN_ENTREGA} hrs.</p>` : ''}
         ${w.horario==='programado' ? `<input id="in-fecha-prog" type="datetime-local" value="${w.fecha_programada}" class="w-full border rounded-xl px-4 py-3 mt-2">` : ''}
       </div>`;
   } else if (w.paso === 4) {
     const filas = carrito.map(it => `
       <div class="flex justify-between text-sm"><span>${it.cantidad} × ${it.nombre}</span><b>${clp(it.precio * it.cantidad)}</b></div>
     `).join('');
+    /* FIX: al elegir Transferencia se muestran los datos bancarios
+       reales para que el cliente pueda pagar de inmediato. */
+    const datosBancariosHtml = w.pago === 'transferencia' ? `
+      <div class="bg-sky-50 border border-sky-200 rounded-xl p-4 mt-3 text-sm text-slate-700 space-y-1">
+        <p class="font-bold text-sky-700 mb-1">🏦 Datos para transferencia</p>
+        <div class="flex justify-between"><span>Banco</span><b>${DATOS_BANCARIOS.banco}</b></div>
+        <div class="flex justify-between"><span>Tipo de cuenta</span><b>${DATOS_BANCARIOS.tipoCuenta}</b></div>
+        <div class="flex justify-between"><span>N° de cuenta</span><b>${DATOS_BANCARIOS.numeroCuenta}</b></div>
+        <div class="flex justify-between"><span>RUT</span><b>${DATOS_BANCARIOS.rut}</b></div>
+        <div class="flex justify-between"><span>Correo</span><b>${DATOS_BANCARIOS.correo}</b></div>
+        <div class="flex justify-between"><span>Teléfono</span><b>${DATOS_BANCARIOS.telefono}</b></div>
+        <p class="text-xs text-slate-400 pt-1">Envía el comprobante al confirmar tu pedido.</p>
+      </div>` : '';
     contenido = `
       <div class="card p-5 fade-in mb-4">
         <label class="text-sm font-semibold text-slate-600 mb-2 block">Indicaciones (opcional)</label>
@@ -791,13 +835,14 @@ function pintarPasoPedido(cliente){
           <option value="efectivo" ${w.pago==='efectivo'?'selected':''}>Pago en efectivo</option>
           <option value="transferencia" ${w.pago==='transferencia'?'selected':''}>Pago por transferencia</option>
         </select>
+        ${datosBancariosHtml}
       </div>
       <div class="card p-5 fade-in">
         <h3 class="font-bold text-slate-700 mb-3">Resumen del pedido</h3>
         <div class="space-y-1.5 text-sm text-slate-600">
           ${filas}
           <div class="flex justify-between"><span>Dirección</span><b>Torre ${w.torre} · Depto ${w.depto}</b></div>
-          <div class="flex justify-between"><span>Horario</span><b>${w.horario==='asap'?'Lo antes posible':w.horario==='hoy'?'Hoy':'Programado'}</b></div>
+          <div class="flex justify-between"><span>Horario</span><b>${w.horario==='hoy'?`Hoy, ${HORA_INICIO_ENTREGA}-${HORA_FIN_ENTREGA}`:'Programado'}</b></div>
           <div class="flex justify-between border-t pt-2 mt-2 text-base"><span class="font-bold">Total</span><b class="text-sky-700">${clp(total)}</b></div>
         </div>
       </div>`;
@@ -836,6 +881,16 @@ function pintarPasoPedido(cliente){
   }
   if (w.paso===3){
     document.querySelectorAll('.btn-horario').forEach(b => b.addEventListener('click', ()=>{ w.horario = b.getAttribute('data-horario'); pintarPasoPedido(cliente); }));
+  }
+  if (w.paso===4){
+    /* Al cambiar el método de pago, se re-pinta el paso para mostrar
+       u ocultar los datos bancarios de transferencia. Se guarda antes
+       el texto de indicaciones para no perderlo al re-renderizar. */
+    document.getElementById('in-pago').addEventListener('change', (e)=>{
+      w.indicaciones = document.getElementById('in-indicaciones').value.trim();
+      w.pago = e.target.value;
+      pintarPasoPedido(cliente);
+    });
   }
   if (w.paso>1) document.getElementById('btn-atras').addEventListener('click', ()=>{ guardarPasoActual(); w.paso--; pintarPasoPedido(cliente); });
   document.getElementById('btn-siguiente').addEventListener('click', async ()=>{
@@ -954,11 +1009,13 @@ async function renderSeguimiento(cliente, pedidoId){
   catch(e){ console.warn('Tabla pedido_items no disponible aún.'); }
 
   const estado = normalizaEstado(pedido.estado);
-  const pasos = ['solicitado','preparando','en_camino','entregado'];
+  /* FIX: timeline simplificado a solo 2 pasos (Solicitado / Entregado),
+     ya que el flujo de estados de AguaTorre se redujo a esos 2. */
+  const pasos = ['solicitado','entregado'];
   const idxActual = pasos.indexOf(estado);
 
   const timeline = pasos.map((p, i) => {
-    const labels = { solicitado:'Pedido solicitado', preparando:'Pedido preparado', en_camino:'En camino', entregado:'Entregado' };
+    const labels = { solicitado:'Pedido solicitado', entregado:'Entregado' };
     const hecho = estado==='cancelado' ? false : i <= idxActual;
     const esActual = i === idxActual && estado!=='cancelado';
     return `
@@ -998,7 +1055,8 @@ async function renderSeguimiento(cliente, pedidoId){
           </div>
           <span class="px-3 py-1.5 rounded-full text-xs font-bold ${estadoColor(pedido.estado)}">${estadoLabel(pedido.estado)}</span>
         </div>
-        ${estado==='en_camino' && pedido.hora_estimada ? `<div class="bg-sky-50 text-sky-700 text-sm rounded-xl px-4 py-2 mb-3">🚚 Tu pedido llegará aproximadamente en <b>${pedido.hora_estimada}</b>.</div>` : ''}
+        ${estado==='solicitado' && pedido.horario_tipo==='hoy' ? `<div class="bg-sky-50 text-sky-700 text-sm rounded-xl px-4 py-2 mb-3">🕕 Tu pedido llega hoy, entre las <b>${HORA_INICIO_ENTREGA}</b> y las <b>${HORA_FIN_ENTREGA}</b> hrs.</div>` : ''}
+        ${estado==='solicitado' && pedido.horario_tipo==='programado' && pedido.fecha_programada ? `<div class="bg-sky-50 text-sky-700 text-sm rounded-xl px-4 py-2 mb-3">🗓️ Entrega programada para <b>${fechaHora(pedido.fecha_programada)}</b>.</div>` : ''}
         ${estado==='cancelado' ? `<div class="bg-red-50 text-red-600 text-sm rounded-xl px-4 py-2 mb-3">Este pedido fue cancelado.</div>` : `<div class="space-y-1">${timeline}</div>`}
       </div>
       ${repartidorHtml}
@@ -1024,11 +1082,11 @@ async function renderHistorial(cliente){
 function pintarHistorial(pedidos){
   const filtros = [
     { id:'todos', label:'Todos' },
-    { id:'en_camino', label:'En camino' },
-    { id:'entregado', label:'Completados' },
+    { id:'solicitado', label:'Solicitados' },
+    { id:'entregado', label:'Entregados' },
     { id:'cancelado', label:'Cancelados' },
   ];
-  const filtrados = FILTRO_HISTORIAL==='todos' ? pedidos : pedidos.filter(p => normalizaEstado(p.estado) === (FILTRO_HISTORIAL==='en_camino' ? 'en_camino' : FILTRO_HISTORIAL) || (FILTRO_HISTORIAL==='en_camino' && ['preparando','solicitado'].includes(normalizaEstado(p.estado))));
+  const filtrados = FILTRO_HISTORIAL==='todos' ? pedidos : pedidos.filter(p => normalizaEstado(p.estado) === FILTRO_HISTORIAL);
 
   const lista = filtrados.length>0 ? filtrados.map(p => `
     <a href="#/pedido/${p.id}" class="card p-4 mb-3 flex justify-between items-center block">
@@ -1417,8 +1475,6 @@ async function renderAdminPedidos(){
     await supabaseClient.from('pedidos').update(patch).eq('id', id);
     if (pedido && pedido.cliente_id) {
       const mensajes = {
-        preparando: '📦 Tu pedido está siendo preparado.',
-        en_camino: '🚚 ¡Tu pedido está en camino!',
         entregado: '✅ Tu pedido fue entregado. ¡Gracias por preferir AguaTorre!',
         cancelado: '❌ Tu pedido fue cancelado. Contáctanos si tienes dudas.'
       };
@@ -1734,7 +1790,7 @@ async function renderAdminInventario(){
 
 async function renderAdminEntregas(){
   const cont = document.getElementById('admin-content');
-  const { data: pedidos } = await supabaseClient.from('pedidos').select('*, clientes(nombre, torre, depto)').in('estado', ['solicitado','preparando','en_camino','pendiente']).order('created_at', { ascending:false });
+  const { data: pedidos } = await supabaseClient.from('pedidos').select('*, clientes(nombre, torre, depto)').in('estado', ['solicitado','pendiente']).order('created_at', { ascending:false });
   let repartidores = [];
   try { const { data } = await supabaseClient.from('repartidores').select('*'); repartidores = data || []; }
   catch(e){ console.warn('Tabla repartidores no disponible aún.'); }
